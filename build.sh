@@ -1,1 +1,3 @@
-npm run build:roam
+#!/bin/bash
+npm install
+npm run build

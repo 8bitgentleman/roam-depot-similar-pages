@@ -1,4 +1,5 @@
 export const IDB_NAME = "sp";
+export const IDB_VERSION = 2;
 export const DIJKSTRA_STORE = "dijkstraDiffs";
 export const STRING_STORE = "fullStrings";
 export const EMBEDDING_STORE = "embeddings";

@@ -4,6 +4,7 @@ import {
   DIJKSTRA_STORE,
   STRING_STORE,
   IDB_NAME,
+  IDB_VERSION,
   TITLE_STORE,
   STORES,
   STORES_TYPE,
@@ -21,7 +22,7 @@ function useIdb() {
 
   React.useEffect(() => {
     const initializeIdb = async () => {
-      const freshDb = await openDB(IDB_NAME, undefined, {
+      const freshDb = await openDB(IDB_NAME, IDB_VERSION, {
         upgrade(db: IDBPDatabase) {
           STORES.forEach((store: STORES_TYPE) => {
             if (!db.objectStoreNames.contains(store)) {

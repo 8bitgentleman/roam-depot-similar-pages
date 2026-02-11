@@ -11,7 +11,7 @@ export const LAST_100_PAGES = {
   icon: "updated" as IconName,
 };
 
-export const BODY_SIZE = 250;
+export const BODY_SIZE = 2000;
 export const CHUNK_SIZE = 100;
 
 export const DEFAULT_MODE: SP_MODE = "neighbors";

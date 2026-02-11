@@ -6,19 +6,13 @@
   },
   "version": "0.0.1",
   "description": "find connections between ideas",
-  "main": "index.js",
-  "types": "index.d.ts",
+  "main": "extension.js",
   "scripts": {
-    "prebuild:roam": "npm install",
-    "build:roam": "roamjs-scripts build --marketplace",
-    "build": "roamjs-scripts build",
-    "dev": "roamjs-scripts dev",
-    "dev:roam": "roamjs-scripts dev --depot",
-    "lambdas": "roamjs-scripts lambdas",
-    "preserver": "roamjs-scripts lambdas --build",
-    "server": "localhost-lambdas",
-    "start": "concurrently npm:dev npm:server",
-    "test": "TZ=UTC jest --config jest.config.ts"
+    "build": "webpack",
+    "watch": "webpack --watch",
+    "version:major": "npm version major",
+    "version:minor": "npm version minor",
+    "version:patch": "npm version patch"
   },
   "repository": {
     "type": "git",
@@ -34,26 +28,15 @@
     "similarity detection algorithm"
   ],
   "devDependencies": {
-    "@testing-library/react": "^12.1.5",
-    "@testing-library/react-hooks": "^8.0.1",
-    "@types/jest": "^27.0.1",
-    "@typescript-eslint/eslint-plugin": "^5.38.1",
-    "@typescript-eslint/parser": "^5.38.1",
-    "eslint": "^8.20.0",
-    "eslint-plugin-react": "^7.31.8",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "graphology-types": "^0.24.4",
-    "jest": "^27.1.0",
-    "roamjs-scripts": "^0.24.3",
-    "ts-jest": "^27.0.5",
+    "css-loader": "^6.8.1",
+    "style-loader": "^3.3.3",
     "ts-loader": "^9.3.0",
-    "ts-node": "^10.2.1",
     "typescript": "^4.7.4",
-    "typescript-plugin-css-modules": "^3.4.0"
+    "typescript-plugin-css-modules": "^3.4.0",
+    "webpack": "^5.73.0",
+    "webpack-cli": "^4.10.0"
   },
   "dependencies": {
-    "@tensorflow-models/universal-sentence-encoder": "^1.3.3",
-    "@tensorflow/tfjs": "^4.0.0",
     "@visx/event": "^2.6.0",
     "@visx/gradient": "^2.10.0",
     "@visx/group": "^2.10.0",
@@ -62,11 +45,10 @@
     "@visx/shape": "^2.12.2",
     "@visx/tooltip": "^2.16.0",
     "@visx/voronoi": "^2.10.0",
-    "babel-plugin-react-css-modules": "^5.2.6",
     "graphology": "^0.24.1",
     "graphology-operators": "^1.5.1",
     "graphology-shortest-path": "^2.0.1",
-    "mathjs": "^11.2.1",
+    "idb": "^6.0.0",
     "roamjs-components": "^0.74.23"
   }
 }
