@@ -3,7 +3,11 @@ import { Button, Dialog, Classes, Icon } from "@blueprintjs/core";
 import { SpBody } from "./sp-body";
 import styles from "../styles/sp-button.module.css";
 
-const SPButton = () => {
+type SPButtonProps = {
+  extensionAPI: RoamExtensionAPI;
+};
+
+const SPButton = ({ extensionAPI }: SPButtonProps) => {
   const [modalOpen, setModalOpen] = React.useState(false);
 
   const openModal = useCallback(() => {
@@ -31,7 +35,7 @@ const SPButton = () => {
         style={{ width: "95%", maxWidth: "none", paddingBottom: 0, minHeight: "90vh" }}
       >
         <div className={`${Classes.DIALOG_BODY} ${styles.graphbodywrap} `}>
-          <SpBody></SpBody>
+          <SpBody extensionAPI={extensionAPI}></SpBody>
         </div>
       </Dialog>
     </>

@@ -2,7 +2,7 @@ import * as React from "react";
 import gridStyles from "../styles/grid.module.css";
 import styles from "../styles/sp-body.module.css";
 import { SelectablePage, SHORTEST_PATH_KEY, SP_STATUS } from "../types";
-import { Spinner, Card, ProgressBar, Elevation } from "@blueprintjs/core";
+import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button } from "@blueprintjs/core";
 import PageSelect from "./page/page-select";
 import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
 import { initializeEmbeddingWorker } from "../services/embedding-worker-client";
@@ -16,14 +16,24 @@ function dot(a: number[], b: number[]): number {
   return sum;
 }
 import SpGraph from "./graph/sp-graph";
+import SpRankedList from "./graph/sp-ranked-list";
 import useGraphology from "../hooks/useGraphology";
 
-export const SpBody = () => {
+type ViewMode = "scatter" | "list";
+
+type SpBodyProps = {
+  extensionAPI: RoamExtensionAPI;
+};
+
+export const SpBody = ({ extensionAPI }: SpBodyProps) => {
   const [addApexPage, addActivePages, idb, activePageIds, apexPageId] = useIdb();
   const [status, setStatus] = React.useState<SP_STATUS>("CREATING_GRAPH");
   const [graph, initializeGraph, roamPages, selectablePages] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
+
+  const defaultView = (extensionAPI.settings.get("default-view") as ViewMode) || "scatter";
+  const [viewMode, setViewMode] = React.useState<ViewMode>(defaultView);
 
   React.useEffect(() => {
     if (graph.size === 0) {
@@ -129,6 +139,27 @@ export const SpBody = () => {
             onPageSelect={pageSelectCallback}
           ></PageSelect>
         </Card>
+        {status === "READY_TO_DISPLAY" && (
+          <Card elevation={1} style={{ marginTop: 10 }}>
+            <h5 className={styles.title}>view</h5>
+            <ButtonGroup fill>
+              <Button
+                icon="scatter-plot"
+                active={viewMode === "scatter"}
+                onClick={() => setViewMode("scatter")}
+              >
+                Scatter
+              </Button>
+              <Button
+                icon="list"
+                active={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+              >
+                List
+              </Button>
+            </ButtonGroup>
+          </Card>
+        )}
       </div>
       <div className={gridStyles.body}>
         <div className={styles.graph}>
@@ -136,9 +167,11 @@ export const SpBody = () => {
             {status === "GRAPH_INITIALIZED" ? (
               "↙️ select a page"
             ) : status === "READY_TO_DISPLAY" ? (
-              <>
-                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId}></SpGraph>
-              </>
+              viewMode === "scatter" ? (
+                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} />
+              ) : (
+                <SpRankedList activePageIds={activePageIds} apexPageId={apexPageId} />
+              )
             ) : (
               <>
                 <Card elevation={Elevation.ONE}>

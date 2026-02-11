@@ -1,0 +1,58 @@
+.container {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.table {
+  width: 100%;
+}
+
+.rank {
+  width: 40px;
+  text-align: center;
+  font-weight: 600;
+  color: #5c7080;
+}
+
+.pageTitle {
+  font-weight: 500;
+}
+
+.topTag {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.linked {
+  opacity: 0.6;
+}
+
+.barWrap {
+  position: relative;
+  width: 120px;
+  height: 20px;
+  background: rgba(92, 112, 128, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #8ee2fa, #48aff0);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+.barLabel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}

@@ -3,8 +3,26 @@ import ReactDOM from "react-dom";
 import SPButton from "./components/sp-button";
 import { ROOT_ID } from "./constants";
 
+const panelConfig = {
+  tabTitle: "Similar Pages",
+  settings: [
+    {
+      id: "default-view",
+      name: "Default View",
+      description: "Choose whether to show the scatter plot or ranked list by default",
+      action: {
+        type: "select",
+        items: ["scatter", "list"],
+        onChange: () => {},
+      },
+    },
+  ],
+};
+
 export default {
-  onload: () => {
+  onload: ({ extensionAPI }: { extensionAPI: RoamExtensionAPI }) => {
+    extensionAPI.settings.panel.create(panelConfig);
+
     const container = document.getElementsByClassName("rm-topbar")[0];
     const root = document.createElement("div");
     root.id = `${ROOT_ID}`;
@@ -14,7 +32,7 @@ export default {
 
     ReactDOM.render(
       <>
-        <SPButton />
+        <SPButton extensionAPI={extensionAPI} />
       </>,
       root
     );
