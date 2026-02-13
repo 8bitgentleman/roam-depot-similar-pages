@@ -23,10 +23,11 @@ type ViewMode = "scatter" | "list";
 
 type SpBodyProps = {
   extensionAPI: RoamExtensionAPI;
+  initialPageUid?: string;
 };
 
-export const SpBody = ({ extensionAPI }: SpBodyProps) => {
-  const [addApexPage, addActivePages, idb, activePageIds, apexPageId] = useIdb();
+export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
+  const [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] = useIdb();
   const [status, setStatus] = React.useState<SP_STATUS>("CREATING_GRAPH");
   const [graph, initializeGraph, roamPages, selectablePages] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
@@ -35,17 +36,30 @@ export const SpBody = ({ extensionAPI }: SpBodyProps) => {
   const defaultView = (extensionAPI.settings.get("default-view") as ViewMode) || "scatter";
   const [viewMode, setViewMode] = React.useState<ViewMode>(defaultView);
 
+  const buildExclusions = React.useCallback((): string[] => {
+    const exclusions: string[] = [];
+    if (extensionAPI.settings.get("hide-dot-pages")) exclusions.push(".");
+    if (extensionAPI.settings.get("hide-roam-pages")) exclusions.push("roam/");
+    const custom = extensionAPI.settings.get("custom-exclusions") as string;
+    if (custom) {
+      custom.split(",").map((s) => s.trim()).filter(Boolean).forEach((p) => exclusions.push(p));
+    }
+    return exclusions;
+  }, [extensionAPI]);
+
+  const skipCodeblocks = !!extensionAPI.settings.get("skip-codeblocks");
+
   React.useEffect(() => {
     if (graph.size === 0) {
       window.setTimeout(() => {
         const initializeGraphAsync = async () => {
-          await initializeGraph();
+          await initializeGraph(undefined, buildExclusions());
           setStatus("GRAPH_INITIALIZED");
         };
         initializeGraphAsync();
       }, 10);
     }
-  }, [graph, initializeGraph]);
+  }, [graph, initializeGraph, buildExclusions]);
 
   const pageSelectCallback = React.useCallback(
     ({ id: selectedPageId }: SelectablePage) => {
@@ -54,16 +68,26 @@ export const SpBody = ({ extensionAPI }: SpBodyProps) => {
         setStatus("GETTING_GRAPH_STATS");
 
         const apexRoamPage = roamPages.get(selectedPageId);
-        addApexPage(selectedPageId, apexRoamPage);
+        addApexPage(selectedPageId, apexRoamPage, skipCodeblocks);
 
         const pathMap: ShortestPathMap = graph.getNodeAttribute(selectedPageId, SHORTEST_PATH_KEY);
-        addActivePages(pathMap, roamPages);
+        addActivePages(pathMap, roamPages, skipCodeblocks);
 
         setStatus("READY_TO_EMBED");
       }
     },
-    [roamPages, graph, addApexPage, addActivePages, idb]
+    [roamPages, graph, addApexPage, addActivePages, idb, skipCodeblocks]
   );
+
+  // Auto-select page when opened from context menu
+  React.useEffect(() => {
+    if (initialPageUid && idbReady && status === "GRAPH_INITIALIZED" && selectablePages.length > 0) {
+      const match = selectablePages.find((p) => p.id === initialPageUid);
+      if (match) {
+        pageSelectCallback(match);
+      }
+    }
+  }, [initialPageUid, idbReady, status, selectablePages, pageSelectCallback]);
 
   const checkIfDoneEmbedding = React.useCallback(
     (pagesDone: number) => {
@@ -140,25 +164,45 @@ export const SpBody = ({ extensionAPI }: SpBodyProps) => {
           ></PageSelect>
         </Card>
         {status === "READY_TO_DISPLAY" && (
-          <Card elevation={1} style={{ marginTop: 10 }}>
-            <h5 className={styles.title}>view</h5>
-            <ButtonGroup fill>
-              <Button
-                icon="scatter-plot"
-                active={viewMode === "scatter"}
-                onClick={() => setViewMode("scatter")}
-              >
-                Scatter
-              </Button>
-              <Button
-                icon="list"
-                active={viewMode === "list"}
-                onClick={() => setViewMode("list")}
-              >
-                List
-              </Button>
-            </ButtonGroup>
-          </Card>
+          <>
+            <Card elevation={1} style={{ marginTop: 10 }}>
+              <h5 className={styles.title}>view</h5>
+              <ButtonGroup fill>
+                <Button
+                  icon="scatter-plot"
+                  active={viewMode === "scatter"}
+                  onClick={() => setViewMode("scatter")}
+                >
+                  Scatter
+                </Button>
+                <Button
+                  icon="list"
+                  active={viewMode === "list"}
+                  onClick={() => setViewMode("list")}
+                >
+                  List
+                </Button>
+              </ButtonGroup>
+            </Card>
+            <Card elevation={1} style={{ marginTop: 10 }}>
+              <h5 className={styles.title}>how it works</h5>
+              <p className={styles.explainer}>
+                <strong>Similarity</strong> — semantic similarity between page
+                content using AI embeddings. Higher = more similar meaning.
+              </p>
+              <p className={styles.explainer}>
+                <strong>Distance</strong> — shortest link path between pages in
+                your graph. Lower = more closely connected.
+              </p>
+              <p className={styles.explainer}>
+                <strong>Score</strong> — combines similarity and distance.
+                Pages marked <strong>top</strong> are in the top 5% by score.
+              </p>
+              <p className={styles.explainer}>
+                Click a row to link pages together.
+              </p>
+            </Card>
+          </>
         )}
       </div>
       <div className={gridStyles.body}>
@@ -168,7 +212,7 @@ export const SpBody = ({ extensionAPI }: SpBodyProps) => {
               "↙️ select a page"
             ) : status === "READY_TO_DISPLAY" ? (
               viewMode === "scatter" ? (
-                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} />
+                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} extensionAPI={extensionAPI} />
               ) : (
                 <SpRankedList activePageIds={activePageIds} apexPageId={apexPageId} />
               )
@@ -177,8 +221,11 @@ export const SpBody = ({ extensionAPI }: SpBodyProps) => {
                 <Card elevation={Elevation.ONE}>
                   <ProgressBar value={loadingIncrement}></ProgressBar>
                   <p>
-                    this takes a few moments for pages in the middle of a large graph, but we cache
-                    the computations so subsequent pages will be faster 🏄‍♂️
+                    {status === "GETTING_GRAPH_STATS"
+                      ? "Calculating graph distances..."
+                      : status === "READY_TO_EMBED" && pagesLeft > 0
+                      ? `Embedding pages... (${pagesLeft} remaining)`
+                      : "Computing similarities..."}
                   </p>
                 </Card>
               </>

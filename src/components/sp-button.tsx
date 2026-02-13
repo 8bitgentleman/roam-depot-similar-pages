@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button, Dialog, Classes, Icon } from "@blueprintjs/core";
 import { SpBody } from "./sp-body";
 import styles from "../styles/sp-button.module.css";
@@ -8,7 +8,8 @@ type SPButtonProps = {
 };
 
 const SPButton = ({ extensionAPI }: SPButtonProps) => {
-  const [modalOpen, setModalOpen] = React.useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [initialPageUid, setInitialPageUid] = useState<string | undefined>();
 
   const openModal = useCallback(() => {
     setModalOpen(true);
@@ -16,6 +17,16 @@ const SPButton = ({ extensionAPI }: SPButtonProps) => {
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
+    setInitialPageUid(undefined);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ uid: string }>) => {
+      setInitialPageUid(e.detail.uid);
+      setModalOpen(true);
+    };
+    document.addEventListener("sp-open", handler as EventListener);
+    return () => document.removeEventListener("sp-open", handler as EventListener);
   }, []);
 
   return (
@@ -35,7 +46,9 @@ const SPButton = ({ extensionAPI }: SPButtonProps) => {
         style={{ width: "95%", maxWidth: "none", paddingBottom: 0, minHeight: "90vh" }}
       >
         <div className={`${Classes.DIALOG_BODY} ${styles.graphbodywrap} `}>
-          <SpBody extensionAPI={extensionAPI}></SpBody>
+          {modalOpen && (
+            <SpBody extensionAPI={extensionAPI} initialPageUid={initialPageUid} />
+          )}
         </div>
       </Dialog>
     </>

@@ -28,8 +28,12 @@ const isTitleOrUidDailyPage = (title: string, uid: string) => {
   );
 };
 
-const isRelevantPage = (title: string, uid: string): boolean => {
-  return !isTitleOrUidDailyPage(title, uid) && title !== "DONE";
+const isRelevantPage = (title: string, uid: string, exclusions: string[] = []): boolean => {
+  if (isTitleOrUidDailyPage(title, uid) || title === "DONE") return false;
+  for (const prefix of exclusions) {
+    if (title.startsWith(prefix)) return false;
+  }
+  return true;
 };
 
 const linkPagesAsync = async (pagentPage: PointWithTitleAndId, linkedPageTitle: string) => {

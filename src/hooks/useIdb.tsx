@@ -18,6 +18,7 @@ import * as React from "react";
 function useIdb() {
   const [activePageIds, setActivePageIds] = React.useState<string[]>([]);
   const [apexPageId, setApexPageId] = React.useState<string>();
+  const [idbReady, setIdbReady] = React.useState(false);
   const idb = React.useRef<IDBPDatabase<any>>();
 
   React.useEffect(() => {
@@ -38,13 +39,14 @@ function useIdb() {
       await clearTx.done;
 
       idb.current = freshDb;
+      setIdbReady(true);
     };
 
     initializeIdb();
   }, []);
 
   const addApexPage = React.useCallback(
-    (uid: string, attrs: IncomingNode) => {
+    (uid: string, attrs: IncomingNode, skipCodeblocks = false) => {
       const addApexPageAsync = async () => {
         setApexPageId(uid);
 
@@ -54,7 +56,7 @@ function useIdb() {
         const currentStringCount = await txStringStore.count(uid);
 
         if (currentStringCount === 0) {
-          const pageString = resolveRefs(getFullString(attrs).slice(0, BODY_SIZE));
+          const pageString = resolveRefs(getFullString(attrs, skipCodeblocks).slice(0, BODY_SIZE));
           operations.push(txStringStore.put(pageString, uid));
         }
 
@@ -68,7 +70,7 @@ function useIdb() {
   );
 
   const addActivePages = React.useCallback(
-    (pathMap: ShortestPathMap, nodeMap: IncomingNodeMap) => {
+    (pathMap: ShortestPathMap, nodeMap: IncomingNodeMap, skipCodeblocks = false) => {
       const addActivePagesAsync = async () => {
         const localActivePages = Object.entries(pathMap).filter(([uid]) => {
           return uid !== apexPageId;
@@ -94,7 +96,7 @@ function useIdb() {
               return null;
             }
 
-            const pageString = resolveRefs(getFullString(nodeMap.get(pageId)).slice(0, BODY_SIZE));
+            const pageString = resolveRefs(getFullString(nodeMap.get(pageId), skipCodeblocks).slice(0, BODY_SIZE));
             return tx.objectStore(STRING_STORE).put(pageString, pageId);
           }),
         ].filter((maybeOperation) => !!maybeOperation);
@@ -108,7 +110,7 @@ function useIdb() {
     [apexPageId]
   );
 
-  return [addApexPage, addActivePages, idb, activePageIds, apexPageId] as const;
+  return [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] as const;
 }
 
 export default useIdb;

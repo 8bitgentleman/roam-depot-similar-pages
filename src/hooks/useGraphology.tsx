@@ -1,7 +1,7 @@
 import Graph from "graphology";
 import { singleSourceLength } from "graphology-shortest-path/unweighted";
 import React from "react";
-import { MIN_DISTANCES, MIN_NEIGHBORS } from "../constants";
+import { MIN_DISTANCES } from "../constants";
 import { isRelevantPage, nodeArrToSelectablePage, pageToNode } from "../services/graph-manip";
 import { getPagesAndBlocksWithRefs } from "../services/queries";
 import {
@@ -42,8 +42,8 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
   );
 
   const addNodeToGraph = React.useCallback(
-    (page: IncomingNode) => {
-      if (typeof page[UID_KEY] === "string" && isRelevantPage(page[TITLE_KEY], page[UID_KEY])) {
+    (page: IncomingNode, exclusions: string[] = []) => {
+      if (typeof page[UID_KEY] === "string" && isRelevantPage(page[TITLE_KEY], page[UID_KEY], exclusions)) {
         graph.addNode(page[UID_KEY], pageToNode(page));
       }
     },
@@ -51,8 +51,8 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
   );
 
   const initializeGraph = React.useCallback(
-    async (injected_min_distance = MIN_DISTANCES) => {
-      memoizedRoamPages.forEach(addNodeToGraph);
+    async (injected_min_distance = MIN_DISTANCES, exclusions: string[] = []) => {
+      memoizedRoamPages.forEach((page) => addNodeToGraph(page, exclusions));
 
       for (let i = 0; i < blocksWithRefs.length; i += 1) {
         const sourceBlock = blocksWithRefs[i][0];
@@ -84,9 +84,8 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
         const newPageNodes = new Map(prev);
         graph.forEachNode((node) => {
           const hasPaths: boolean = graph.hasNodeAttribute(node, SHORTEST_PATH_KEY);
-          const hasNeighbors = graph.neighbors(node).length >= MIN_NEIGHBORS;
 
-          if (hasPaths && hasNeighbors) {
+          if (hasPaths) {
             const {
               [TITLE_KEY]: title,
               [UID_KEY]: uid,

@@ -46,6 +46,11 @@
   transition: width 0.2s ease;
 }
 
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
 .barLabel {
   position: relative;
   z-index: 1;

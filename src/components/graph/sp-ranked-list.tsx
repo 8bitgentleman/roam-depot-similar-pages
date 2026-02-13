@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from "react";
-import { Alert, Tag, Intent } from "@blueprintjs/core";
+import React, { useState, useCallback, useMemo } from "react";
+import { Alert, Tag, Intent, Icon } from "@blueprintjs/core";
 import { useVisx } from "../../hooks/useVisx";
 import { linkPagesAsync } from "../../services/graph-manip";
 import { tooltipMessageGenerator } from "../../services/tooltip-message-generator";
@@ -11,6 +11,9 @@ import {
 import { AlertAttributes, EnhancedPoint } from "../../types";
 import styles from "../../styles/sp-ranked-list.module.css";
 
+type SortKey = "score" | "y" | "rawDistance" | "title";
+type SortDir = "asc" | "desc";
+
 type SpRankedListProps = {
   activePageIds: string[];
   apexPageId: string;
@@ -20,6 +23,29 @@ const SpRankedList = ({ activePageIds, apexPageId }: SpRankedListProps) => {
   const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds);
   const [alertProps, setAlertProps] = useState<AlertAttributes>({ ...DEFAULT_ALERT_ATTRIBUTES });
   const [selectedPoint, setSelectedPoint] = useState<EnhancedPoint | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = useCallback((key: SortKey) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+        return prev;
+      }
+      setSortDir("desc");
+      return key;
+    });
+  }, []);
+
+  const sortedData = useMemo(() => {
+    const sorted = [...graphData].sort((a, b) => {
+      if (sortKey === "title") {
+        return a.title.localeCompare(b.title);
+      }
+      return a[sortKey] - b[sortKey];
+    });
+    return sortDir === "desc" ? sorted.reverse() : sorted;
+  }, [graphData, sortKey, sortDir]);
 
   const handleRowClick = useCallback(
     (point: EnhancedPoint) => {
@@ -56,13 +82,22 @@ const SpRankedList = ({ activePageIds, apexPageId }: SpRankedListProps) => {
         <thead>
           <tr>
             <th>#</th>
-            <th>Page</th>
-            <th>Similarity</th>
-            <th>Distance</th>
+            <th onClick={() => handleSort("title")} className={styles.sortable}>
+              Page <Icon icon={sortKey === "title" ? (sortDir === "desc" ? "caret-down" : "caret-up") : "double-caret-vertical"} />
+            </th>
+            <th onClick={() => handleSort("score")} className={styles.sortable}>
+              Score <Icon icon={sortKey === "score" ? (sortDir === "desc" ? "caret-down" : "caret-up") : "double-caret-vertical"} />
+            </th>
+            <th onClick={() => handleSort("y")} className={styles.sortable}>
+              Similarity <Icon icon={sortKey === "y" ? (sortDir === "desc" ? "caret-down" : "caret-up") : "double-caret-vertical"} />
+            </th>
+            <th onClick={() => handleSort("rawDistance")} className={styles.sortable}>
+              Distance <Icon icon={sortKey === "rawDistance" ? (sortDir === "desc" ? "caret-down" : "caret-up") : "double-caret-vertical"} />
+            </th>
           </tr>
         </thead>
         <tbody>
-          {graphData.map((point, i) => {
+          {sortedData.map((point, i) => {
             const similarityPct = Math.round(point.y * 100);
             return (
               <tr
@@ -84,6 +119,7 @@ const SpRankedList = ({ activePageIds, apexPageId }: SpRankedListProps) => {
                     </Tag>
                   )}
                 </td>
+                <td className={styles.rank}>{Math.round(point.score * 100)}</td>
                 <td>
                   <div className={styles.barWrap}>
                     <div className={styles.bar} style={{ width: `${similarityPct}%` }} />

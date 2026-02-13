@@ -16,9 +16,10 @@ type DotsProps = {
   graphData: EnhancedPoint[];
   apexData: PointWithTitleAndId;
   markPageLinked: (pageId: string) => void;
+  extensionAPI: RoamExtensionAPI;
 };
 
-const SpDots = ({ width, height, graphData, apexData, markPageLinked }: DotsProps) => {
+const SpDots = ({ width, height, graphData, apexData, markPageLinked, extensionAPI }: DotsProps) => {
   const {
     svgRef,
     handleMouseMove,
@@ -37,7 +38,17 @@ const SpDots = ({ width, height, graphData, apexData, markPageLinked }: DotsProp
     alertProps,
   } = useCircles(graphData, apexData, width, height, markPageLinked);
 
-  const [showVoronoi, setShowVoronoi] = useState(false);
+  const [showVoronoi, setShowVoronoi] = useState(
+    () => !!extensionAPI.settings.get("show-voronoi")
+  );
+
+  const toggleVoronoi = React.useCallback(
+    (value: boolean) => {
+      setShowVoronoi(value);
+      extensionAPI.settings.set("show-voronoi", value);
+    },
+    [extensionAPI]
+  );
 
   return width < 10 ? null : (
     <div style={{ position: "relative" }}>
@@ -99,7 +110,7 @@ const SpDots = ({ width, height, graphData, apexData, markPageLinked }: DotsProp
         tooltipData={tooltipData}
         key={graphData[graphData.length - 1]?.uid}
       />
-      <SpVoronoiControls showVoronoi={showVoronoi} setShowVoronoi={setShowVoronoi} />
+      <SpVoronoiControls showVoronoi={showVoronoi} setShowVoronoi={toggleVoronoi} />
       <Alert
         cancelButtonText={alertProps.cancelButtonText}
         confirmButtonText={alertProps.confirmButtonText}

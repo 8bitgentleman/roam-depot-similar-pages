@@ -11,7 +11,7 @@ import {
   UID_KEY,
 } from "../types";
 
-const getFullString = (incomingNode: IncomingNode | Children): string => {
+const getFullString = (incomingNode: IncomingNode | Children, skipCodeblocks = false): string => {
   const strings: string[] = [incomingNode?.[TITLE_KEY] || ""];
   const queue = [incomingNode];
   let lengthCount = strings[0].length;
@@ -20,7 +20,11 @@ const getFullString = (incomingNode: IncomingNode | Children): string => {
     const node = queue.shift();
 
     if (node?.[STRING_KEY]) {
-      lengthCount += node?.[STRING_KEY]?.length ?? 0;
+      if (skipCodeblocks && node[STRING_KEY].trimStart().startsWith("```")) {
+        continue;
+      }
+
+      lengthCount += node[STRING_KEY].length;
 
       if (lengthCount < BODY_SIZE) {
         strings.push(node[STRING_KEY]);
