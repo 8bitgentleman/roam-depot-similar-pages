@@ -84,7 +84,9 @@ function useVisx(apexPageId: string, activePageIds: string[]) {
 
       const normalizedPoints = activeAndApexpoints.active.map(({ x, y, title, ...rest }) => {
         const scaledX = x / maxX;
-        return { ...rest, x: scaledX, y, title, rawDistance: x, score: scaledX * y };
+        // Similarity dominates; distance is a small discovery boost (far + similar = surprising find)
+        const score = y + scaledX * 0.1;
+        return { ...rest, x: scaledX, y, title, rawDistance: x, score };
       });
 
       const topIndex = normalizedPoints.length / TOP_CUTOFF;

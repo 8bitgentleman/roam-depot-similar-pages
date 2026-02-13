@@ -1,7 +1,6 @@
 import Graph from "graphology";
 import { singleSourceLength } from "graphology-shortest-path/unweighted";
 import React from "react";
-import { MIN_DISTANCES } from "../constants";
 import { isRelevantPage, nodeArrToSelectablePage, pageToNode } from "../services/graph-manip";
 import { getPagesAndBlocksWithRefs } from "../services/queries";
 import {
@@ -9,7 +8,6 @@ import {
   IncomingNode,
   PPAGE_KEY,
   REF_KEY,
-  SHORTEST_PATH_KEY,
   TIME_KEY,
   TITLE_KEY,
   UID_KEY,
@@ -51,7 +49,7 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
   );
 
   const initializeGraph = React.useCallback(
-    async (injected_min_distance = MIN_DISTANCES, exclusions: string[] = []) => {
+    async (exclusions: string[] = []) => {
       memoizedRoamPages.forEach((page) => addNodeToGraph(page, exclusions));
 
       for (let i = 0; i < blocksWithRefs.length; i += 1) {
@@ -73,24 +71,13 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
         }
       }
 
-      graph.forEachNode((node) => {
-        const singleSourceLengthMap = singleSourceLength(graph, node);
-        if (Object.keys(singleSourceLengthMap).length >= injected_min_distance) {
-          graph.setNodeAttribute(node, SHORTEST_PATH_KEY, singleSourceLengthMap);
-        }
-      });
-
-      setPageNodes((prev) => {
-        const newPageNodes = new Map(prev);
+      // All non-excluded pages in the graph are selectable — BFS runs lazily on select
+      setPageNodes(() => {
+        const newPageNodes = new Map<string, FastPage>();
         graph.forEachNode((node) => {
-          const hasPaths: boolean = graph.hasNodeAttribute(node, SHORTEST_PATH_KEY);
-
-          if (hasPaths) {
-            const {
-              [TITLE_KEY]: title,
-              [UID_KEY]: uid,
-              [TIME_KEY]: time,
-            } = memoizedRoamPages.get(node);
+          const pageData = memoizedRoamPages.get(node);
+          if (pageData) {
+            const { [TITLE_KEY]: title, [UID_KEY]: uid, [TIME_KEY]: time } = pageData;
             newPageNodes.set(node, { title, uid, time });
           }
         });
@@ -100,7 +87,15 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
     [graph, memoizedRoamPages, blocksWithRefs, addNodeToGraph, addEdgeToGraph]
   );
 
-  return [graph, initializeGraph, memoizedRoamPages, selectablePages] as const;
+  // Lazy BFS: compute shortest paths only for the selected page
+  const getShortestPaths = React.useCallback(
+    (nodeId: string) => {
+      return singleSourceLength(graph, nodeId);
+    },
+    [graph]
+  );
+
+  return [graph, initializeGraph, memoizedRoamPages, selectablePages, getShortestPaths] as const;
 }
 
 export default useGraphology;

@@ -1,12 +1,11 @@
 import * as React from "react";
 import gridStyles from "../styles/grid.module.css";
 import styles from "../styles/sp-body.module.css";
-import { SelectablePage, SHORTEST_PATH_KEY, SP_STATUS } from "../types";
+import { SelectablePage, SP_STATUS } from "../types";
 import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button } from "@blueprintjs/core";
 import PageSelect from "./page/page-select";
 import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
 import { initializeEmbeddingWorker } from "../services/embedding-worker-client";
-import { ShortestPathLengthMapping as ShortestPathMap } from "graphology-shortest-path/unweighted";
 import useIdb from "../hooks/useIdb";
 import { EMBEDDING_STORE, SIMILARITY_STORE } from "../services/idb";
 
@@ -29,7 +28,7 @@ type SpBodyProps = {
 export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] = useIdb();
   const [status, setStatus] = React.useState<SP_STATUS>("CREATING_GRAPH");
-  const [graph, initializeGraph, roamPages, selectablePages] = useGraphology();
+  const [graph, initializeGraph, roamPages, selectablePages, getShortestPaths] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
 
@@ -53,7 +52,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
     if (graph.size === 0) {
       window.setTimeout(() => {
         const initializeGraphAsync = async () => {
-          await initializeGraph(undefined, buildExclusions());
+          await initializeGraph(buildExclusions());
           setStatus("GRAPH_INITIALIZED");
         };
         initializeGraphAsync();
@@ -70,13 +69,14 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         const apexRoamPage = roamPages.get(selectedPageId);
         addApexPage(selectedPageId, apexRoamPage, skipCodeblocks);
 
-        const pathMap: ShortestPathMap = graph.getNodeAttribute(selectedPageId, SHORTEST_PATH_KEY);
+        // Lazy BFS: compute shortest paths only for the selected page
+        const pathMap = getShortestPaths(selectedPageId);
         addActivePages(pathMap, roamPages, skipCodeblocks);
 
         setStatus("READY_TO_EMBED");
       }
     },
-    [roamPages, graph, addApexPage, addActivePages, idb, skipCodeblocks]
+    [roamPages, getShortestPaths, addApexPage, addActivePages, idb, skipCodeblocks]
   );
 
   // Auto-select page when opened from context menu
@@ -195,8 +195,9 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
                 your graph. Lower = more closely connected.
               </p>
               <p className={styles.explainer}>
-                <strong>Score</strong> — combines similarity and distance.
-                Pages marked <strong>top</strong> are in the top 5% by score.
+                <strong>Score</strong> — primarily similarity, with a small
+                boost for distant pages (surprising discoveries). Pages marked{" "}
+                <strong>top</strong> are in the top 5% by score.
               </p>
               <p className={styles.explainer}>
                 Click a row to link pages together.
