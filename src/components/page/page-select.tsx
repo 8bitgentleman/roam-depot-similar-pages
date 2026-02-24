@@ -27,7 +27,7 @@ function PageSelectComponent(props: PageSelectProps) {
       itemsEqual="id"
       noResults={<MenuItem disabled={true} text="No results." />}
       onItemSelect={handleItemSelect}
-      popoverProps={{ minimal: true }}
+      popoverProps={{ minimal: true, boundary: "viewport" }}
       inputProps={{ placeholder: "Select a page" }}
     >
       <Button icon={page?.icon} rightIcon="caret-down" text={page ? page.title : "select a page"} />

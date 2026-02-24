@@ -21,7 +21,7 @@ self.onmessage = async function ({ data }) {
     "https://cdn.jsdelivr.net/npm/idb@7.1.1/+esm"
   );
 
-  const db = await openDB(IDB_NAME, 2, {
+  const db = await openDB(IDB_NAME, undefined, {
     upgrade(db) {
       [STRING_STORE, EMBEDDING_STORE, SIMILARITY_STORE].forEach((store) => {
         if (!db.objectStoreNames.contains(store)) {

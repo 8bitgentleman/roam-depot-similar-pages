@@ -34,6 +34,10 @@ function useIdb() {
             }
           });
         },
+        blocking() {
+          // Close this connection if a newer version wants to upgrade
+          idb.current?.close();
+        },
       });
 
       idb.current = freshDb;
@@ -41,6 +45,10 @@ function useIdb() {
     };
 
     initializeIdb();
+
+    return () => {
+      idb.current?.close();
+    };
   }, []);
 
   const addApexPage = React.useCallback(
@@ -68,7 +76,7 @@ function useIdb() {
         await tx.done;
       };
 
-      addApexPageAsync();
+      return addApexPageAsync().catch(console.error);
     },
     [setApexPageId, idb]
   );
@@ -125,7 +133,7 @@ function useIdb() {
         await tx.done;
       };
 
-      addActivePagesAsync();
+      return addActivePagesAsync().catch(console.error);
     },
     [apexPageId]
   );

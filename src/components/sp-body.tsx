@@ -67,13 +67,16 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         setStatus("GETTING_GRAPH_STATS");
 
         const apexRoamPage = roamPages.get(selectedPageId);
-        addApexPage(selectedPageId, apexRoamPage, skipCodeblocks);
-
-        // Lazy BFS: compute shortest paths only for the selected page
         const pathMap = getShortestPaths(selectedPageId);
-        addActivePages(pathMap, roamPages, skipCodeblocks);
 
-        setStatus("READY_TO_EMBED");
+        // Wait for IDB writes (including embedding invalidations) to commit
+        // before reading embedding keys in the READY_TO_EMBED effect.
+        Promise.all([
+          addApexPage(selectedPageId, apexRoamPage, skipCodeblocks),
+          addActivePages(pathMap, roamPages, skipCodeblocks),
+        ]).then(() => {
+          setStatus("READY_TO_EMBED");
+        });
       }
     },
     [roamPages, getShortestPaths, addApexPage, addActivePages, idb, skipCodeblocks]
@@ -98,7 +101,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   );
 
   React.useEffect(() => {
-    if (idb.current && pagesLeft === 0) {
+    if (idb.current && pagesLeft === 0 && status === "READY_TO_EMBED") {
       const setSimilaritiesAsync = async () => {
         const tx = idb.current.transaction([EMBEDDING_STORE, SIMILARITY_STORE], "readwrite");
         const embeddingsStore = tx.objectStore(EMBEDDING_STORE);
@@ -123,7 +126,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
 
       setSimilaritiesAsync();
     }
-  }, [pagesLeft, idb, activePageIds, apexPageId]);
+  }, [pagesLeft, idb, activePageIds, apexPageId, status]);
 
   React.useEffect(() => {
     if (status === "READY_TO_EMBED") {
