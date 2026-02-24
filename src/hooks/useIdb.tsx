@@ -2,12 +2,15 @@ import resolveRefs from "roamjs-components/dom/resolveRefs";
 import { BODY_SIZE } from "../constants";
 import {
   DIJKSTRA_STORE,
+  EMBEDDING_STORE,
+  HASH_STORE,
   STRING_STORE,
   IDB_NAME,
   IDB_VERSION,
   TITLE_STORE,
   STORES,
   STORES_TYPE,
+  hashString,
 } from "../services/idb";
 import { getFullString } from "../services/queries";
 import { IncomingNode, TITLE_KEY, IncomingNodeMap } from "../types";
@@ -33,11 +36,6 @@ function useIdb() {
         },
       });
 
-      const clearTx = freshDb.transaction(STORES, "readwrite");
-      const clearOperations = STORES.map((store) => clearTx.objectStore(store).clear());
-      await Promise.all(clearOperations);
-      await clearTx.done;
-
       idb.current = freshDb;
       setIdbReady(true);
     };
@@ -50,14 +48,20 @@ function useIdb() {
       const addApexPageAsync = async () => {
         setApexPageId(uid);
 
-        const tx = idb.current.transaction([TITLE_STORE, STRING_STORE], "readwrite");
-        const operations = [tx.objectStore(TITLE_STORE).put(attrs[TITLE_KEY], uid)];
-        const txStringStore = tx.objectStore(STRING_STORE);
-        const currentStringCount = await txStringStore.count(uid);
+        const pageString = resolveRefs(getFullString(attrs, skipCodeblocks).slice(0, BODY_SIZE));
+        const newHash = hashString(pageString);
+        const storedHash = await idb.current.get(HASH_STORE, uid);
 
-        if (currentStringCount === 0) {
-          const pageString = resolveRefs(getFullString(attrs, skipCodeblocks).slice(0, BODY_SIZE));
-          operations.push(txStringStore.put(pageString, uid));
+        const tx = idb.current.transaction(
+          [TITLE_STORE, STRING_STORE, HASH_STORE, EMBEDDING_STORE],
+          "readwrite"
+        );
+        const operations: Promise<any>[] = [tx.objectStore(TITLE_STORE).put(attrs[TITLE_KEY], uid)];
+
+        if (storedHash !== newHash) {
+          operations.push(tx.objectStore(STRING_STORE).put(pageString, uid));
+          operations.push(tx.objectStore(HASH_STORE).put(newHash, uid));
+          operations.push(tx.objectStore(EMBEDDING_STORE).delete(uid));
         }
 
         await Promise.all(operations);
@@ -78,28 +82,44 @@ function useIdb() {
 
         setActivePageIds(localActivePages.map(([uid]) => uid));
 
+        // Compute all strings + hashes upfront
+        const pageData = localActivePages.map(([pageId, dijkstraDiff]) => {
+          const pageString = resolveRefs(getFullString(nodeMap.get(pageId), skipCodeblocks).slice(0, BODY_SIZE));
+          return { pageId, dijkstraDiff, pageString, newHash: hashString(pageString) };
+        });
+
+        // Bulk-read stored hashes in a readonly transaction
+        const hashTx = idb.current.transaction([HASH_STORE], "readonly");
+        const storedHashes = await Promise.all(
+          pageData.map(({ pageId }) => hashTx.objectStore(HASH_STORE).get(pageId))
+        );
+        await hashTx.done;
+
+        const changedPageIds = new Set(
+          pageData.filter(({ newHash }, i) => storedHashes[i] !== newHash).map(({ pageId }) => pageId)
+        );
+
         const tx = idb.current.transaction(
-          [DIJKSTRA_STORE, TITLE_STORE, STRING_STORE],
+          [DIJKSTRA_STORE, TITLE_STORE, STRING_STORE, HASH_STORE, EMBEDDING_STORE],
           "readwrite"
         );
-        const existingStringKeys = await tx.objectStore(STRING_STORE).getAllKeys();
-        const operations = [
-          tx.objectStore(DIJKSTRA_STORE).clear(),
-          ...localActivePages.map(([pageId, dijkstraDiff]) => {
-            return tx.objectStore(DIJKSTRA_STORE).put(dijkstraDiff, pageId);
-          }),
-          ...localActivePages.map(([pageId]) => {
-            return tx.objectStore(TITLE_STORE).put(nodeMap.get(pageId)[TITLE_KEY], pageId);
-          }),
-          ...localActivePages.map(([pageId]) => {
-            if (existingStringKeys.includes(pageId)) {
-              return null;
-            }
 
-            const pageString = resolveRefs(getFullString(nodeMap.get(pageId), skipCodeblocks).slice(0, BODY_SIZE));
-            return tx.objectStore(STRING_STORE).put(pageString, pageId);
-          }),
-        ].filter((maybeOperation) => !!maybeOperation);
+        const operations: Promise<any>[] = [
+          tx.objectStore(DIJKSTRA_STORE).clear(),
+          ...pageData.map(({ pageId, dijkstraDiff }) =>
+            tx.objectStore(DIJKSTRA_STORE).put(dijkstraDiff, pageId)
+          ),
+          ...pageData.map(({ pageId }) =>
+            tx.objectStore(TITLE_STORE).put(nodeMap.get(pageId)[TITLE_KEY], pageId)
+          ),
+          ...pageData
+            .filter(({ pageId }) => changedPageIds.has(pageId))
+            .flatMap(({ pageId, pageString, newHash }) => [
+              tx.objectStore(STRING_STORE).put(pageString, pageId),
+              tx.objectStore(HASH_STORE).put(newHash, pageId),
+              tx.objectStore(EMBEDDING_STORE).delete(pageId),
+            ]),
+        ];
 
         await Promise.all(operations);
         await tx.done;
