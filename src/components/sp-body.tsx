@@ -150,6 +150,8 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         if (selectionGeneration.current !== myGeneration) return;
 
         if (idsToEmbed.length > 0) {
+          // Order matters: set pagesLeft > 0 BEFORE status EMBEDDING so the completion
+          // effect never observes (EMBEDDING && pagesLeft <= 0) and skips ahead. Do not reorder.
           setPagesLeft(idsToEmbed.length);
           setStatus("EMBEDDING");
 
@@ -158,10 +160,20 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
             checkIfDoneEmbedding(pagesDone);
           };
 
+          const guardedOnEmbeddingError = (message: string) => {
+            if (selectionGeneration.current !== myGeneration) return;
+            console.error("sp-body: embedding failed:", message);
+            setStatus("EMBEDDING_ERROR");
+          };
+
           for (let i = 0; i < idsToEmbed.length; i += CHUNK_SIZE) {
             if (selectionGeneration.current !== myGeneration) return;
             const chunkedPageIds = idsToEmbed.slice(i, i + CHUNK_SIZE);
-            await initializeEmbeddingWorker(chunkedPageIds, guardedCheckIfDoneEmbedding);
+            await initializeEmbeddingWorker(
+              chunkedPageIds,
+              guardedCheckIfDoneEmbedding,
+              guardedOnEmbeddingError
+            );
           }
         } else {
           setPagesLeft(0);
@@ -241,10 +253,18 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
               "↙️ select a page"
             ) : status === "READY_TO_DISPLAY" ? (
               viewMode === "scatter" ? (
-                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} extensionAPI={extensionAPI} />
+                <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} extensionAPI={extensionAPI} idb={idb} />
               ) : (
-                <SpRankedList activePageIds={activePageIds} apexPageId={apexPageId} />
+                <SpRankedList activePageIds={activePageIds} apexPageId={apexPageId} idb={idb} />
               )
+            ) : status === "EMBEDDING_ERROR" ? (
+              <Card elevation={Elevation.ONE}>
+                <p>
+                  Embedding failed — the AI model or its libraries could not be
+                  loaded (check your connection and reload). Select a page to try
+                  again.
+                </p>
+              </Card>
             ) : (
               <>
                 <Card elevation={Elevation.ONE}>

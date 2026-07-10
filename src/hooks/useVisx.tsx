@@ -1,19 +1,15 @@
-import { IDBPDatabase, openDB } from "idb";
+import { IDBPDatabase } from "idb";
 import React from "react";
-import {
-  IDB_NAME,
-  STORES_TYPE,
-  DIJKSTRA_STORE,
-  TITLE_STORE,
-  STRING_STORE,
-  SIMILARITY_STORE,
-} from "../services/idb";
+import { DIJKSTRA_STORE, TITLE_STORE, SIMILARITY_STORE } from "../services/idb";
 import { EnhancedPoint, PointWithTitleAndId } from "../types";
 
 const TOP_CUTOFF = 20;
 
-function useVisx(apexPageId: string, activePageIds: string[]) {
-  const idb = React.useRef<IDBPDatabase>();
+function useVisx(
+  apexPageId: string,
+  activePageIds: string[],
+  idb: React.MutableRefObject<IDBPDatabase | undefined>
+) {
   const [graphData, setGraphData] = React.useState<EnhancedPoint[]>([]);
   const [apexData, setApexData] = React.useState<PointWithTitleAndId>();
 
@@ -37,18 +33,7 @@ function useVisx(apexPageId: string, activePageIds: string[]) {
 
   React.useEffect(() => {
     const initializeIdb = async () => {
-      const freshDb = await openDB(IDB_NAME, undefined, {
-        upgrade(db) {
-          const relStores: STORES_TYPE[] = [DIJKSTRA_STORE, TITLE_STORE, STRING_STORE];
-          relStores.forEach((store) => {
-            if (!db.objectStoreNames.contains(store)) {
-              db.createObjectStore(store);
-            }
-          });
-        },
-      });
-
-      idb.current = freshDb;
+      if (!idb.current) return;
 
       const dijkstraValues = await idb.current.getAll(DIJKSTRA_STORE);
       const titleValues = await idb.current.getAll(TITLE_STORE);
@@ -101,7 +86,7 @@ function useVisx(apexPageId: string, activePageIds: string[]) {
     };
 
     initializeIdb();
-  }, [activePageIds, apexPageId]);
+  }, [activePageIds, apexPageId, idb]);
 
   return { graphData, apexData, markPageLinked };
 }

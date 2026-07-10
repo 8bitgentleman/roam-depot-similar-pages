@@ -1,4 +1,5 @@
 import React from "react";
+import { IDBPDatabase } from "idb";
 import ParentSize from "@visx/responsive/lib/components/ParentSize";
 import SpDots from "./sp-dots";
 import { useVisx } from "../../hooks/useVisx";
@@ -7,10 +8,11 @@ type SpGraphProps = {
   activePageIds: string[];
   apexPageId: string;
   extensionAPI: RoamExtensionAPI;
+  idb: React.MutableRefObject<IDBPDatabase | undefined>;
 };
 
-const SpGraph = ({ activePageIds, apexPageId, extensionAPI }: SpGraphProps) => {
-  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds);
+const SpGraph = ({ activePageIds, apexPageId, extensionAPI, idb }: SpGraphProps) => {
+  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds, idb);
 
   return graphData.length > 0 ? (
     <ParentSize>

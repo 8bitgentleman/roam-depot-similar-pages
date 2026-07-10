@@ -37,6 +37,7 @@
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
+    "@blueprintjs/core": "^3.50.4",
     "@visx/event": "^2.6.0",
     "@visx/gradient": "^2.10.0",
     "@visx/group": "^2.10.0",

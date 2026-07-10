@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
+import { IDBPDatabase } from "idb";
 import { Alert, Tag, Intent, Icon } from "@blueprintjs/core";
 import { useVisx } from "../../hooks/useVisx";
 import { linkPagesAsync } from "../../services/graph-manip";
@@ -17,10 +18,11 @@ type SortDir = "asc" | "desc";
 type SpRankedListProps = {
   activePageIds: string[];
   apexPageId: string;
+  idb: React.MutableRefObject<IDBPDatabase | undefined>;
 };
 
-const SpRankedList = ({ activePageIds, apexPageId }: SpRankedListProps) => {
-  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds);
+const SpRankedList = ({ activePageIds, apexPageId, idb }: SpRankedListProps) => {
+  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds, idb);
   const [alertProps, setAlertProps] = useState<AlertAttributes>({ ...DEFAULT_ALERT_ATTRIBUTES });
   const [selectedPoint, setSelectedPoint] = useState<EnhancedPoint | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("score");

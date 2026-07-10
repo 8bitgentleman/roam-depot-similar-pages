@@ -48,6 +48,10 @@ everything is client side — your data never leaves roam. the extension uses we
 
 graph distances are computed lazily (only for the selected page) rather than upfront, which keeps initialization fast on large graphs.
 
+### first-run model download
+
+the first time you embed pages, the extension downloads a one-time ~34MB AI embedding model ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5)) along with the [Transformers.js](https://huggingface.co/docs/transformers.js) and idb libraries from a CDN and Hugging Face. these are cached by your browser afterward, so subsequent runs work offline. the model runs entirely on your machine — no page content is ever sent anywhere.
+
 ## acknowledgements
 
 credit to Stephen Solka, creator of [logseq-graph-analysis](https://github.com/trashhalo/logseq-graph-analysis), which served as a source of inspiration and guidance for representing a knowledge graph with [graphology](https://graphology.github.io/).
