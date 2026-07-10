@@ -1,10 +1,16 @@
 import * as React from "react";
 import gridStyles from "../styles/grid.module.css";
 import styles from "../styles/sp-body.module.css";
-import { SelectablePage, SP_STATUS } from "../types";
-import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button } from "@blueprintjs/core";
+import { SelectablePage, SP_STATUS, TITLE_KEY } from "../types";
+import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button, Switch } from "@blueprintjs/core";
 import PageSelect from "./page/page-select";
-import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
+import { isTitleOrUidDailyPage } from "../services/graph-manip";
+import {
+  CHUNK_SIZE,
+  DISCONNECTED_DISTANCE,
+  INITIAL_LOADING_INCREMENT,
+  RECENT_FALLBACK_LIMIT,
+} from "../constants";
 import { initializeEmbeddingWorker } from "../services/embedding-worker-client";
 import useIdb from "../hooks/useIdb";
 import { EMBEDDING_STORE, SIMILARITY_STORE } from "../services/idb";
@@ -28,9 +34,15 @@ type SpBodyProps = {
 export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] = useIdb();
   const [status, setStatus] = React.useState<SP_STATUS>("CREATING_GRAPH");
-  const [graph, initializeGraph, roamPages, selectablePages, getShortestPaths] = useGraphology();
+  const [graph, initializeGraph, roamPages, attributeUids, getShortestPaths, getRecentPageIds] =
+    useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
+  const [disconnected, setDisconnected] = React.useState<boolean>(false);
+  // Off by default: attribute pages and daily notes are hidden from the search
+  // list until the user flips these toggles on the modal.
+  const [showAttributePages, setShowAttributePages] = React.useState<boolean>(false);
+  const [showDailyPages, setShowDailyPages] = React.useState<boolean>(false);
   const selectionGeneration = React.useRef<number>(0);
 
   const defaultView = (extensionAPI.settings.get("default-view") as ViewMode) || "scatter";
@@ -48,6 +60,28 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   }, [extensionAPI]);
 
   const skipCodeblocks = !!extensionAPI.settings.get("skip-codeblocks");
+
+  // Reactive searchable list: filtered live by the modal toggles so flipping a
+  // switch updates the dropdown without rebuilding the graph.
+  const selectablePages = React.useMemo<SelectablePage[]>(() => {
+    const exclusions = buildExclusions();
+    const pages: SelectablePage[] = [];
+
+    roamPages.forEach((node, uid) => {
+      const title = node[TITLE_KEY];
+      if (!title || title === "DONE") return;
+      if (exclusions.some((prefix) => title.startsWith(prefix))) return;
+
+      const isAttribute = attributeUids.has(uid);
+      const isDaily = isTitleOrUidDailyPage(title, uid);
+      if (isAttribute && !showAttributePages) return;
+      if (isDaily && !showDailyPages) return;
+
+      pages.push({ title, id: uid, icon: "document" });
+    });
+
+    return pages;
+  }, [roamPages, attributeUids, buildExclusions, showAttributePages, showDailyPages]);
 
   React.useEffect(() => {
     if (graph.size === 0) {
@@ -70,30 +104,48 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         setStatus("GETTING_GRAPH_STATS");
 
         const apexRoamPage = roamPages.get(selectedPageId);
-        const pathMap = getShortestPaths(selectedPageId);
+        // Pages kept out of the graph (attribute pages, daily notes surfaced via
+        // the toggles) have no topology, so skip the BFS and fall back below.
+        const pathMap = graph.hasNode(selectedPageId) ? getShortestPaths(selectedPageId) : {};
+
+        // Isolated page (only itself reachable): no graph distances exist, so
+        // fall back to ranking against the most-recently-edited pages by pure
+        // content similarity. See docs/DISCONNECTED_PAGE_FALLBACK.md.
+        const isDisconnected = Object.keys(pathMap).length <= 1;
+        setDisconnected(isDisconnected);
+
+        const effectivePathMap = isDisconnected
+          ? Object.fromEntries(
+              getRecentPageIds(selectedPageId, RECENT_FALLBACK_LIMIT).map((id) => [
+                id,
+                DISCONNECTED_DISTANCE,
+              ])
+            )
+          : pathMap;
 
         // Wait for IDB writes (including embedding invalidations) to commit
         // before reading embedding keys in the READY_TO_EMBED effect.
         Promise.all([
           addApexPage(selectedPageId, apexRoamPage, skipCodeblocks),
-          addActivePages(pathMap, roamPages, skipCodeblocks),
+          addActivePages(effectivePathMap, roamPages, skipCodeblocks),
         ]).then(() => {
           setStatus("READY_TO_EMBED");
         });
       }
     },
-    [roamPages, getShortestPaths, addApexPage, addActivePages, idb, skipCodeblocks]
+    [graph, roamPages, getShortestPaths, getRecentPageIds, addApexPage, addActivePages, idb, skipCodeblocks]
   );
 
-  // Auto-select page when opened from context menu
+  // Auto-select page when opened from context menu. Look up the page directly
+  // (not via the filtered list) so it works regardless of the toggles.
   React.useEffect(() => {
-    if (initialPageUid && idbReady && status === "GRAPH_INITIALIZED" && selectablePages.length > 0) {
-      const match = selectablePages.find((p) => p.id === initialPageUid);
-      if (match) {
-        pageSelectCallback(match);
+    if (initialPageUid && idbReady && status === "GRAPH_INITIALIZED") {
+      const node = roamPages.get(initialPageUid);
+      if (node?.[TITLE_KEY]) {
+        pageSelectCallback({ title: node[TITLE_KEY], id: initialPageUid, icon: "document" });
       }
     }
-  }, [initialPageUid, idbReady, status, selectablePages, pageSelectCallback]);
+  }, [initialPageUid, idbReady, status, roamPages, pageSelectCallback]);
 
   const checkIfDoneEmbedding = React.useCallback(
     (pagesDone: number) => {
@@ -202,28 +254,51 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
             selectablePages={selectablePages}
             onPageSelect={pageSelectCallback}
           ></PageSelect>
+          <Switch
+            checked={showAttributePages}
+            label="Show attribute pages"
+            onChange={(e) => setShowAttributePages(e.currentTarget.checked)}
+            style={{ marginTop: 10, marginBottom: 0 }}
+          />
+          <Switch
+            checked={showDailyPages}
+            label="Show daily notes"
+            onChange={(e) => setShowDailyPages(e.currentTarget.checked)}
+            style={{ marginBottom: 0 }}
+          />
         </Card>
         {status === "READY_TO_DISPLAY" && (
           <>
-            <Card elevation={1} style={{ marginTop: 10 }}>
-              <h5 className={styles.title}>view</h5>
-              <ButtonGroup fill>
-                <Button
-                  icon="scatter-plot"
-                  active={viewMode === "scatter"}
-                  onClick={() => setViewMode("scatter")}
-                >
-                  Scatter
-                </Button>
-                <Button
-                  icon="list"
-                  active={viewMode === "list"}
-                  onClick={() => setViewMode("list")}
-                >
-                  List
-                </Button>
-              </ButtonGroup>
-            </Card>
+            {disconnected ? (
+              <Card elevation={1} style={{ marginTop: 10 }}>
+                <h5 className={styles.title}>view</h5>
+                <p className={styles.explainer}>
+                  This page has no links to other pages, so there are no graph
+                  distances to plot. Results are ranked by content similarity
+                  against your most recently edited pages.
+                </p>
+              </Card>
+            ) : (
+              <Card elevation={1} style={{ marginTop: 10 }}>
+                <h5 className={styles.title}>view</h5>
+                <ButtonGroup fill>
+                  <Button
+                    icon="scatter-plot"
+                    active={viewMode === "scatter"}
+                    onClick={() => setViewMode("scatter")}
+                  >
+                    Scatter
+                  </Button>
+                  <Button
+                    icon="list"
+                    active={viewMode === "list"}
+                    onClick={() => setViewMode("list")}
+                  >
+                    List
+                  </Button>
+                </ButtonGroup>
+              </Card>
+            )}
             <Card elevation={1} style={{ marginTop: 10 }}>
               <h5 className={styles.title}>how it works</h5>
               <p className={styles.explainer}>
@@ -252,7 +327,14 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
             {status === "GRAPH_INITIALIZED" ? (
               "↙️ select a page"
             ) : status === "READY_TO_DISPLAY" ? (
-              viewMode === "scatter" ? (
+              disconnected ? (
+                <SpRankedList
+                  activePageIds={activePageIds}
+                  apexPageId={apexPageId}
+                  idb={idb}
+                  disconnected
+                />
+              ) : viewMode === "scatter" ? (
                 <SpGraph activePageIds={activePageIds} apexPageId={apexPageId} extensionAPI={extensionAPI} idb={idb} />
               ) : (
                 <SpRankedList activePageIds={activePageIds} apexPageId={apexPageId} idb={idb} />

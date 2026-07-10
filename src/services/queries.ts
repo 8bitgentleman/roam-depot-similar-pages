@@ -41,21 +41,23 @@ const getFullString = (incomingNode: IncomingNode | Children, skipCodeblocks = f
 
 const getPagesAndBlocksWithRefs = (): {
   pages: IncomingNodeMap;
+  attributeUids: Set<string>;
   blocksWithRefs: [PRef][];
 } => {
-  const results: { [TITLE_KEY]: string }[][] = window.roamAlphaAPI.data.fast
+  const results: { [TITLE_KEY]: string; [UID_KEY]: string }[][] = window.roamAlphaAPI.data.fast
     .q(
       `[:find (pull ?p [:node/title :block/uid]) :where [?b :block/refs ?p] [?b :block/string ?s] [?p :node/title ?t] [(str ?t "::") ?a] [(clojure.string/starts-with? ?s ?a)]]`
     )
-    .slice(0, MAX_PAGE_SIZE) as { [TITLE_KEY]: string }[][];
+    .slice(0, MAX_PAGE_SIZE) as { [TITLE_KEY]: string; [UID_KEY]: string }[][];
 
   if (results.length === MAX_PAGE_SIZE) {
     alert(TOO_MANY_PAGES_MESSAGE);
   }
 
-  const attributePageTitles = results.map(
-    (p: { [TITLE_KEY]: string }[]) => p[0][TITLE_KEY]
-  ) as string[];
+  // Pages whose title is used as an attribute (`Title::`) anywhere. We keep them
+  // in the page map (so they can be surfaced via the modal toggle) but tag them
+  // so they can be filtered out of the searchable list and graph topology.
+  const attributeUids = new Set<string>(results.map((p) => p[0][UID_KEY]));
 
   const pageMap = new Map<string, IncomingNode>();
   const pages: [PPage][] = window.roamAlphaAPI.data.fast.q(`
@@ -73,11 +75,7 @@ const getPagesAndBlocksWithRefs = (): {
   `) as [PPage][];
 
   pages.forEach((pPageArr) => {
-    const pageTitle = pPageArr[0][TITLE_KEY];
-
-    if (!attributePageTitles.includes(pageTitle)) {
-      pageMap.set(pPageArr[0][UID_KEY], pPageArr[0]);
-    }
+    pageMap.set(pPageArr[0][UID_KEY], pPageArr[0]);
   });
 
   const blocksWithRefs: [PRef][] = window.roamAlphaAPI.data.fast.q(
@@ -96,7 +94,7 @@ const getPagesAndBlocksWithRefs = (): {
   `
   ) as [PRef][];
 
-  return { pages: pageMap, blocksWithRefs };
+  return { pages: pageMap, attributeUids, blocksWithRefs };
 };
 
 export { getFullString, getPagesAndBlocksWithRefs };

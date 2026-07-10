@@ -19,10 +19,11 @@ type SpRankedListProps = {
   activePageIds: string[];
   apexPageId: string;
   idb: React.MutableRefObject<IDBPDatabase | undefined>;
+  disconnected?: boolean;
 };
 
-const SpRankedList = ({ activePageIds, apexPageId, idb }: SpRankedListProps) => {
-  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds, idb);
+const SpRankedList = ({ activePageIds, apexPageId, idb, disconnected = false }: SpRankedListProps) => {
+  const { graphData, apexData, markPageLinked } = useVisx(apexPageId, activePageIds, idb, disconnected);
   const [alertProps, setAlertProps] = useState<AlertAttributes>({ ...DEFAULT_ALERT_ATTRIBUTES });
   const [selectedPoint, setSelectedPoint] = useState<EnhancedPoint | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("score");
@@ -75,7 +76,12 @@ const SpRankedList = ({ activePageIds, apexPageId, idb }: SpRankedListProps) => 
   }, []);
 
   if (graphData.length === 0) {
-    return <>no data to display</>;
+    return (
+      <>
+        No similar pages found. This graph may not have enough pages with
+        content to compare against yet.
+      </>
+    );
   }
 
   return (
@@ -130,7 +136,7 @@ const SpRankedList = ({ activePageIds, apexPageId, idb }: SpRankedListProps) => 
                 </td>
                 <td>
                   <Tag minimal round>
-                    {point.rawDistance}
+                    {disconnected || !isFinite(point.rawDistance) ? "—" : point.rawDistance}
                   </Tag>
                 </td>
               </tr>

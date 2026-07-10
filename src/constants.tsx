@@ -14,6 +14,16 @@ export const LAST_100_PAGES = {
 export const BODY_SIZE = 2000;
 export const CHUNK_SIZE = 100;
 
+// When the selected page has no graph links (isolated), we can't compute
+// distances, but we can still rank pages by pure content/title similarity.
+// We embed the N most-recently-edited pages as the comparison pool.
+// See docs/DISCONNECTED_PAGE_FALLBACK.md — this is the fast path, not the
+// most complete one.
+export const RECENT_FALLBACK_LIMIT = 500;
+// Placeholder distance stored for fallback pages. Distance is meaningless for a
+// disconnected page, so the UI ignores it (renders "—") when disconnected.
+export const DISCONNECTED_DISTANCE = 1;
+
 export const DEFAULT_MODE: SP_MODE = "neighbors";
 
 

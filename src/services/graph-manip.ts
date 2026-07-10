@@ -49,4 +49,10 @@ const linkPagesAsync = async (pagentPage: PointWithTitleAndId, linkedPageTitle: 
   });
 };
 
-export { nodeArrToSelectablePage, pageToNode, isRelevantPage, linkPagesAsync };
+export {
+  nodeArrToSelectablePage,
+  pageToNode,
+  isRelevantPage,
+  isTitleOrUidDailyPage,
+  linkPagesAsync,
+};

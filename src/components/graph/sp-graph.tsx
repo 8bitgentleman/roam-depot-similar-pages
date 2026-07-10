@@ -28,7 +28,11 @@ const SpGraph = ({ activePageIds, apexPageId, extensionAPI, idb }: SpGraphProps)
       )}
     </ParentSize>
   ) : (
-    <>no data to graph</>
+    <>
+      No connected pages to graph. This page has no links to other pages, so
+      there are no graph distances to plot — switch to the List view to see
+      pages ranked by content similarity.
+    </>
   );
 };
 

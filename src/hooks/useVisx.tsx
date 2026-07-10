@@ -8,7 +8,8 @@ const TOP_CUTOFF = 20;
 function useVisx(
   apexPageId: string,
   activePageIds: string[],
-  idb: React.MutableRefObject<IDBPDatabase | undefined>
+  idb: React.MutableRefObject<IDBPDatabase | undefined>,
+  disconnected = false
 ) {
   const [graphData, setGraphData] = React.useState<EnhancedPoint[]>([]);
   const [apexData, setApexData] = React.useState<PointWithTitleAndId>();
@@ -41,6 +42,39 @@ function useVisx(
       const dijkstraKeys = await idb.current.getAllKeys(DIJKSTRA_STORE);
       const titleKeys = await idb.current.getAllKeys(TITLE_STORE);
       const similarityKeys = await idb.current.getAllKeys(SIMILARITY_STORE);
+
+      const apexTitle = titleValues[titleKeys.indexOf(apexPageId)];
+
+      // Disconnected apex: no graph distances, so rank by pure similarity.
+      if (disconnected) {
+        const points = activePageIds.reduce((acc: EnhancedPoint[], pageId) => {
+          if (pageId === apexPageId) return acc;
+          const similarityValue = similarityValues[similarityKeys.indexOf(pageId)];
+          const title = titleValues[titleKeys.indexOf(pageId)];
+          if (similarityValue !== undefined && title !== undefined) {
+            acc.push({
+              x: 0,
+              y: similarityValue,
+              title,
+              uid: pageId,
+              linked: false,
+              rawDistance: Infinity,
+              score: similarityValue,
+              isTop: false,
+            });
+          }
+          return acc;
+        }, []);
+
+        const topIndex = points.length / TOP_CUTOFF;
+        const ranked = points
+          .sort((a, b) => b.score - a.score)
+          .map((point, i) => ({ ...point, isTop: i < topIndex }));
+
+        setGraphData(ranked);
+        setApexData({ x: 0, y: 0, title: apexTitle, uid: apexPageId, linked: false });
+        return;
+      }
 
       const activeAndApexpoints = activePageIds.reduce(
         (acc: { active: PointWithTitleAndId[]; apex: PointWithTitleAndId }, pageId) => {
@@ -82,11 +116,15 @@ function useVisx(
         });
 
       setGraphData(enhancedNormalizedPoints);
-      setApexData({ ...activeAndApexpoints.apex, uid: apexPageId });
+      setApexData({
+        ...(activeAndApexpoints.apex ?? { x: 0, y: 0, linked: false }),
+        title: apexTitle ?? activeAndApexpoints.apex?.title,
+        uid: apexPageId,
+      });
     };
 
     initializeIdb();
-  }, [activePageIds, apexPageId, idb]);
+  }, [activePageIds, apexPageId, idb, disconnected]);
 
   return { graphData, apexData, markPageLinked };
 }

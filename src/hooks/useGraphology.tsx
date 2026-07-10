@@ -1,7 +1,7 @@
 import Graph from "graphology";
 import { singleSourceLength } from "graphology-shortest-path/unweighted";
 import React from "react";
-import { isRelevantPage, nodeArrToSelectablePage, pageToNode } from "../services/graph-manip";
+import { isRelevantPage, pageToNode } from "../services/graph-manip";
 import { getPagesAndBlocksWithRefs } from "../services/queries";
 import {
   FastPage,
@@ -17,11 +17,7 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
   const graph = React.useMemo(() => new Graph(), []);
   const [pageNodes, setPageNodes] = React.useState<Map<string, FastPage>>(new Map());
 
-  const selectablePages = React.useMemo(() => {
-    return Array.from(pageNodes.entries()).map(nodeArrToSelectablePage);
-  }, [pageNodes]);
-
-  const { pages: memoizedRoamPages, blocksWithRefs } = React.useMemo(
+  const { pages: memoizedRoamPages, attributeUids, blocksWithRefs } = React.useMemo(
     () => pagesAndBlocksFn(),
     [pagesAndBlocksFn]
   );
@@ -41,11 +37,18 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
 
   const addNodeToGraph = React.useCallback(
     (page: IncomingNode, exclusions: string[] = []) => {
-      if (typeof page[UID_KEY] === "string" && isRelevantPage(page[TITLE_KEY], page[UID_KEY], exclusions)) {
-        graph.addNode(page[UID_KEY], pageToNode(page));
+      const uid = page[UID_KEY];
+      // Attribute pages are kept out of the graph topology so they don't distort
+      // link distances (they're often hubs like `Status`/`Author`).
+      if (
+        typeof uid === "string" &&
+        !attributeUids.has(uid) &&
+        isRelevantPage(page[TITLE_KEY], uid, exclusions)
+      ) {
+        graph.addNode(uid, pageToNode(page));
       }
     },
-    [graph]
+    [graph, attributeUids]
   );
 
   const initializeGraph = React.useCallback(
@@ -95,7 +98,27 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
     [graph]
   );
 
-  return [graph, initializeGraph, memoizedRoamPages, selectablePages, getShortestPaths] as const;
+  // Fallback candidate pool for isolated pages: most-recently-edited pages.
+  // Drawn from graph nodes so exclusions are already applied.
+  const getRecentPageIds = React.useCallback(
+    (excludeUid: string, limit: number): string[] => {
+      return Array.from(pageNodes.values())
+        .filter((page) => page.uid !== excludeUid)
+        .sort((a, b) => (b.time ?? 0) - (a.time ?? 0))
+        .slice(0, limit)
+        .map((page) => page.uid);
+    },
+    [pageNodes]
+  );
+
+  return [
+    graph,
+    initializeGraph,
+    memoizedRoamPages,
+    attributeUids,
+    getShortestPaths,
+    getRecentPageIds,
+  ] as const;
 }
 
 export default useGraphology;
