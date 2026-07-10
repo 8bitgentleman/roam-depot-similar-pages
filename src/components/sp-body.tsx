@@ -31,6 +31,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const [graph, initializeGraph, roamPages, selectablePages, getShortestPaths] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
+  const selectionGeneration = React.useRef<number>(0);
 
   const defaultView = (extensionAPI.settings.get("default-view") as ViewMode) || "scatter";
   const [viewMode, setViewMode] = React.useState<ViewMode>(defaultView);
@@ -63,6 +64,8 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const pageSelectCallback = React.useCallback(
     ({ id: selectedPageId }: SelectablePage) => {
       if (idb.current && selectedPageId) {
+        selectionGeneration.current += 1;
+        setPagesLeft(0);
         setLoadingIncrement(INITIAL_LOADING_INCREMENT);
         setStatus("GETTING_GRAPH_STATS");
 
@@ -101,7 +104,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   );
 
   React.useEffect(() => {
-    if (idb.current && pagesLeft === 0 && status === "READY_TO_EMBED") {
+    if (idb.current && status === "READY_TO_COMPUTE") {
       const setSimilaritiesAsync = async () => {
         const tx = idb.current.transaction([EMBEDDING_STORE, SIMILARITY_STORE], "readwrite");
         const embeddingsStore = tx.objectStore(EMBEDDING_STORE);
@@ -121,15 +124,21 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
           await tx.done;
 
           setStatus("READY_TO_DISPLAY");
+        } else {
+          console.error(
+            `sp-body: apex embedding for page ${apexPageId} was not found; cannot compute similarities.`
+          );
         }
       };
 
       setSimilaritiesAsync();
     }
-  }, [pagesLeft, idb, activePageIds, apexPageId, status]);
+  }, [idb, activePageIds, apexPageId, status]);
 
   React.useEffect(() => {
     if (status === "READY_TO_EMBED") {
+      const myGeneration = selectionGeneration.current;
+
       const initializeEmbeddingsAsync = async () => {
         setLoadingIncrement(INITIAL_LOADING_INCREMENT);
 
@@ -138,21 +147,37 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
           return !embeddingsKeys.includes(p);
         });
 
+        if (selectionGeneration.current !== myGeneration) return;
+
         if (idsToEmbed.length > 0) {
           setPagesLeft(idsToEmbed.length);
+          setStatus("EMBEDDING");
+
+          const guardedCheckIfDoneEmbedding = (pagesDone: number) => {
+            if (selectionGeneration.current !== myGeneration) return;
+            checkIfDoneEmbedding(pagesDone);
+          };
 
           for (let i = 0; i < idsToEmbed.length; i += CHUNK_SIZE) {
+            if (selectionGeneration.current !== myGeneration) return;
             const chunkedPageIds = idsToEmbed.slice(i, i + CHUNK_SIZE);
-            await initializeEmbeddingWorker(chunkedPageIds, checkIfDoneEmbedding);
+            await initializeEmbeddingWorker(chunkedPageIds, guardedCheckIfDoneEmbedding);
           }
         } else {
           setPagesLeft(0);
+          setStatus("READY_TO_COMPUTE");
         }
       };
 
       initializeEmbeddingsAsync();
     }
   }, [status, checkIfDoneEmbedding, activePageIds, apexPageId, idb]);
+
+  React.useEffect(() => {
+    if (status === "EMBEDDING" && pagesLeft <= 0) {
+      setStatus("READY_TO_COMPUTE");
+    }
+  }, [status, pagesLeft]);
 
   return status === "CREATING_GRAPH" ? (
     <Spinner></Spinner>
@@ -227,7 +252,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
                   <p>
                     {status === "GETTING_GRAPH_STATS"
                       ? "Calculating graph distances..."
-                      : status === "READY_TO_EMBED" && pagesLeft > 0
+                      : (status === "EMBEDDING" || status === "READY_TO_EMBED") && pagesLeft > 0
                       ? `Embedding pages... (${pagesLeft} remaining)`
                       : "Computing similarities..."}
                   </p>

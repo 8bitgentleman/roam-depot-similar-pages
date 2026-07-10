@@ -74,6 +74,8 @@ export type SP_STATUS =
   | "GRAPH_INITIALIZED"
   | "GETTING_GRAPH_STATS"
   | "READY_TO_EMBED"
+  | "EMBEDDING"
+  | "READY_TO_COMPUTE"
   | "READY_TO_DISPLAY";
 
 export type SP_MODE = "neighbors" | "queries";
