@@ -5,12 +5,7 @@ import { SelectablePage, SP_STATUS, TITLE_KEY } from "../types";
 import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button, Switch } from "@blueprintjs/core";
 import PageSelect from "./page/page-select";
 import { isTitleOrUidDailyPage } from "../services/graph-manip";
-import {
-  CHUNK_SIZE,
-  DISCONNECTED_DISTANCE,
-  INITIAL_LOADING_INCREMENT,
-  RECENT_FALLBACK_LIMIT,
-} from "../constants";
+import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
 import { initializeEmbeddingWorker } from "../services/embedding-worker-client";
 import useIdb from "../hooks/useIdb";
 import { EMBEDDING_STORE, SIMILARITY_STORE } from "../services/idb";
@@ -34,8 +29,7 @@ type SpBodyProps = {
 export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] = useIdb();
   const [status, setStatus] = React.useState<SP_STATUS>("CREATING_GRAPH");
-  const [graph, initializeGraph, roamPages, attributeUids, getShortestPaths, getRecentPageIds] =
-    useGraphology();
+  const [graph, initializeGraph, roamPages, attributeUids, getShortestPaths] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
   const [disconnected, setDisconnected] = React.useState<boolean>(false);
@@ -105,35 +99,36 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
 
         const apexRoamPage = roamPages.get(selectedPageId);
         // Pages kept out of the graph (attribute pages, daily notes surfaced via
-        // the toggles) have no topology, so skip the BFS and fall back below.
-        const pathMap = graph.hasNode(selectedPageId) ? getShortestPaths(selectedPageId) : {};
+        // the toggles) have no topology, so skip the BFS — they just have no
+        // graph distances (handled below like any other unconnected page).
+        const distances = graph.hasNode(selectedPageId) ? getShortestPaths(selectedPageId) : {};
 
-        // Isolated page (only itself reachable): no graph distances exist, so
-        // fall back to ranking against the most-recently-edited pages by pure
-        // content similarity. See docs/DISCONNECTED_PAGE_FALLBACK.md.
-        const isDisconnected = Object.keys(pathMap).length <= 1;
+        // "Disconnected" apex: nothing is reachable through the graph, so there
+        // are no distances to plot and we default to the ranked-list view.
+        const isDisconnected = Object.keys(distances).length <= 1;
         setDisconnected(isDisconnected);
 
-        const effectivePathMap = isDisconnected
-          ? Object.fromEntries(
-              getRecentPageIds(selectedPageId, RECENT_FALLBACK_LIMIT).map((id) => [
-                id,
-                DISCONNECTED_DISTANCE,
-              ])
-            )
-          : pathMap;
+        // Global corpus: every selectable page is a similarity candidate, ranked
+        // against the apex. Reachable pages keep their real BFS distance (and so
+        // appear on the scatter plot); the rest are unconnected (Infinity) and
+        // are ranked by pure content similarity in the list.
+        const corpusPathMap: { [uid: string]: number } = {};
+        for (const { id } of selectablePages) {
+          if (id === selectedPageId) continue;
+          corpusPathMap[id] = distances[id] ?? Infinity;
+        }
 
         // Wait for IDB writes (including embedding invalidations) to commit
         // before reading embedding keys in the READY_TO_EMBED effect.
         Promise.all([
           addApexPage(selectedPageId, apexRoamPage, skipCodeblocks),
-          addActivePages(effectivePathMap, roamPages, skipCodeblocks),
+          addActivePages(corpusPathMap, roamPages, skipCodeblocks),
         ]).then(() => {
           setStatus("READY_TO_EMBED");
         });
       }
     },
-    [graph, roamPages, getShortestPaths, getRecentPageIds, addApexPage, addActivePages, idb, skipCodeblocks]
+    [graph, roamPages, selectablePages, getShortestPaths, addApexPage, addActivePages, idb, skipCodeblocks]
   );
 
   // Auto-select page when opened from context menu. Look up the page directly
@@ -157,6 +152,9 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
 
   React.useEffect(() => {
     if (idb.current && status === "READY_TO_COMPUTE") {
+      // Computing similarities across the whole corpus is slow enough that a new
+      // selection can land mid-flight; guard so a stale run can't clobber it.
+      const myGeneration = selectionGeneration.current;
       const setSimilaritiesAsync = async () => {
         const tx = idb.current.transaction([EMBEDDING_STORE, SIMILARITY_STORE], "readwrite");
         const embeddingsStore = tx.objectStore(EMBEDDING_STORE);
@@ -165,9 +163,11 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
 
         if (apexEmbedding) {
           const operations: Promise<string | void>[] = [similaritiesStore.clear()];
+          // O(1) membership test — the candidate pool is now the whole corpus.
+          const activeIdSet = new Set(activePageIds);
 
           for await (const { value: embedding, key } of embeddingsStore) {
-            if (activePageIds.includes(key)) {
+            if (activeIdSet.has(key as string)) {
               operations.push(similaritiesStore.put(dot(apexEmbedding, embedding), key));
             }
           }
@@ -175,6 +175,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
           await Promise.all(operations);
           await tx.done;
 
+          if (selectionGeneration.current !== myGeneration) return;
           setStatus("READY_TO_DISPLAY");
         } else {
           console.error(
@@ -194,10 +195,8 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
       const initializeEmbeddingsAsync = async () => {
         setLoadingIncrement(INITIAL_LOADING_INCREMENT);
 
-        const embeddingsKeys = await idb.current?.getAllKeys(EMBEDDING_STORE);
-        const idsToEmbed = [...activePageIds, apexPageId].filter((p) => {
-          return !embeddingsKeys.includes(p);
-        });
+        const embeddingsKeys = new Set(await idb.current?.getAllKeys(EMBEDDING_STORE));
+        const idsToEmbed = [...activePageIds, apexPageId].filter((p) => !embeddingsKeys.has(p));
 
         if (selectionGeneration.current !== myGeneration) return;
 
@@ -221,11 +220,14 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
           for (let i = 0; i < idsToEmbed.length; i += CHUNK_SIZE) {
             if (selectionGeneration.current !== myGeneration) return;
             const chunkedPageIds = idsToEmbed.slice(i, i + CHUNK_SIZE);
-            await initializeEmbeddingWorker(
+            const ok = await initializeEmbeddingWorker(
               chunkedPageIds,
               guardedCheckIfDoneEmbedding,
               guardedOnEmbeddingError
             );
+            // Stop spawning workers once a chunk fails (the error handler already
+            // moved us to EMBEDDING_ERROR).
+            if (!ok) return;
           }
         } else {
           setPagesLeft(0);
@@ -275,7 +277,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
                 <p className={styles.explainer}>
                   This page has no links to other pages, so there are no graph
                   distances to plot. Results are ranked by content similarity
-                  against your most recently edited pages.
+                  against every page in your graph.
                 </p>
               </Card>
             ) : (

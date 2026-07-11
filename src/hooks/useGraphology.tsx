@@ -3,19 +3,10 @@ import { singleSourceLength } from "graphology-shortest-path/unweighted";
 import React from "react";
 import { isRelevantPage, pageToNode } from "../services/graph-manip";
 import { getPagesAndBlocksWithRefs } from "../services/queries";
-import {
-  FastPage,
-  IncomingNode,
-  PPAGE_KEY,
-  REF_KEY,
-  TIME_KEY,
-  TITLE_KEY,
-  UID_KEY,
-} from "../types";
+import { IncomingNode, PPAGE_KEY, REF_KEY, TITLE_KEY, UID_KEY } from "../types";
 
 function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
   const graph = React.useMemo(() => new Graph(), []);
-  const [pageNodes, setPageNodes] = React.useState<Map<string, FastPage>>(new Map());
 
   const { pages: memoizedRoamPages, attributeUids, blocksWithRefs } = React.useMemo(
     () => pagesAndBlocksFn(),
@@ -73,21 +64,8 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
           }
         }
       }
-
-      // All non-excluded pages in the graph are selectable — BFS runs lazily on select
-      setPageNodes(() => {
-        const newPageNodes = new Map<string, FastPage>();
-        graph.forEachNode((node) => {
-          const pageData = memoizedRoamPages.get(node);
-          if (pageData) {
-            const { [TITLE_KEY]: title, [UID_KEY]: uid, [TIME_KEY]: time } = pageData;
-            newPageNodes.set(node, { title, uid, time });
-          }
-        });
-        return newPageNodes;
-      });
     },
-    [graph, memoizedRoamPages, blocksWithRefs, addNodeToGraph, addEdgeToGraph]
+    [memoizedRoamPages, blocksWithRefs, addNodeToGraph, addEdgeToGraph]
   );
 
   // Lazy BFS: compute shortest paths only for the selected page
@@ -98,26 +76,12 @@ function useGraphology(pagesAndBlocksFn = getPagesAndBlocksWithRefs) {
     [graph]
   );
 
-  // Fallback candidate pool for isolated pages: most-recently-edited pages.
-  // Drawn from graph nodes so exclusions are already applied.
-  const getRecentPageIds = React.useCallback(
-    (excludeUid: string, limit: number): string[] => {
-      return Array.from(pageNodes.values())
-        .filter((page) => page.uid !== excludeUid)
-        .sort((a, b) => (b.time ?? 0) - (a.time ?? 0))
-        .slice(0, limit)
-        .map((page) => page.uid);
-    },
-    [pageNodes]
-  );
-
   return [
     graph,
     initializeGraph,
     memoizedRoamPages,
     attributeUids,
     getShortestPaths,
-    getRecentPageIds,
   ] as const;
 }
 

@@ -84,48 +84,55 @@ function useIdb() {
   const addActivePages = React.useCallback(
     (pathMap: ShortestPathMap, nodeMap: IncomingNodeMap, skipCodeblocks = false) => {
       const addActivePagesAsync = async () => {
-        const localActivePages = Object.entries(pathMap).filter(([uid]) => {
-          return uid !== apexPageId;
-        });
+        // The caller (pageSelectCallback) builds pathMap over every page except
+        // the selected apex, so no apex-exclusion filter is needed here. Filtering
+        // on the `apexPageId` state would be wrong anyway: it still holds the
+        // PREVIOUS apex on this tick (setApexPageId hasn't committed yet), which
+        // would silently drop the last-viewed page from the new candidate pool.
+        const localActivePages = Object.entries(pathMap);
 
         setActivePageIds(localActivePages.map(([uid]) => uid));
 
-        // Compute all strings + hashes upfront
+        // Deriving a page's text (getFullString + resolveRefs) is the per-select
+        // cost, and the candidate pool is now the whole graph. Pages that already
+        // have a cached embedding keep it — a page's vector is refreshed when it
+        // is chosen as the apex (see addApexPage) — so we only build strings for
+        // pages we still need to embed. First run embeds the whole corpus; after
+        // that, selection stays cheap.
+        const embeddedIds = new Set<string>(
+          (await idb.current.getAllKeys(EMBEDDING_STORE)) as string[]
+        );
+
         const pageData = localActivePages.map(([pageId, dijkstraDiff]) => {
-          const pageString = resolveRefs(getFullString(nodeMap.get(pageId), skipCodeblocks).slice(0, BODY_SIZE));
-          return { pageId, dijkstraDiff, pageString, newHash: hashString(pageString) };
+          const needsEmbedding = !embeddedIds.has(pageId);
+          const pageString = needsEmbedding
+            ? resolveRefs(getFullString(nodeMap.get(pageId), skipCodeblocks).slice(0, BODY_SIZE))
+            : undefined;
+          return { pageId, dijkstraDiff, needsEmbedding, pageString };
         });
 
-        // Bulk-read stored hashes in a readonly transaction
-        const hashTx = idb.current.transaction([HASH_STORE], "readonly");
-        const storedHashes = await Promise.all(
-          pageData.map(({ pageId }) => hashTx.objectStore(HASH_STORE).get(pageId))
-        );
-        await hashTx.done;
-
-        const changedPageIds = new Set(
-          pageData.filter(({ newHash }, i) => storedHashes[i] !== newHash).map(({ pageId }) => pageId)
-        );
-
         const tx = idb.current.transaction(
-          [DIJKSTRA_STORE, TITLE_STORE, STRING_STORE, HASH_STORE, EMBEDDING_STORE],
+          [DIJKSTRA_STORE, TITLE_STORE, STRING_STORE, HASH_STORE],
           "readwrite"
         );
 
         const operations: Promise<any>[] = [
           tx.objectStore(DIJKSTRA_STORE).clear(),
-          ...pageData.map(({ pageId, dijkstraDiff }) =>
-            tx.objectStore(DIJKSTRA_STORE).put(dijkstraDiff, pageId)
-          ),
+          // Only graph-reachable pages get a real distance. Unconnected corpus
+          // pages (Infinity) are omitted so they aren't plotted on the scatter.
+          ...pageData
+            .filter(({ dijkstraDiff }) => Number.isFinite(dijkstraDiff))
+            .map(({ pageId, dijkstraDiff }) =>
+              tx.objectStore(DIJKSTRA_STORE).put(dijkstraDiff, pageId)
+            ),
           ...pageData.map(({ pageId }) =>
             tx.objectStore(TITLE_STORE).put(nodeMap.get(pageId)[TITLE_KEY], pageId)
           ),
           ...pageData
-            .filter(({ pageId }) => changedPageIds.has(pageId))
-            .flatMap(({ pageId, pageString, newHash }) => [
+            .filter(({ needsEmbedding }) => needsEmbedding)
+            .flatMap(({ pageId, pageString }) => [
               tx.objectStore(STRING_STORE).put(pageString, pageId),
-              tx.objectStore(HASH_STORE).put(newHash, pageId),
-              tx.objectStore(EMBEDDING_STORE).delete(pageId),
+              tx.objectStore(HASH_STORE).put(hashString(pageString), pageId),
             ]),
         ];
 
@@ -135,7 +142,7 @@ function useIdb() {
 
       return addActivePagesAsync().catch(console.error);
     },
-    [apexPageId]
+    []
   );
 
   return [addApexPage, addActivePages, idb, activePageIds, apexPageId, idbReady] as const;
