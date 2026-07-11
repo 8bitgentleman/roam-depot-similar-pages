@@ -6,7 +6,7 @@ import { Spinner, Card, ProgressBar, Elevation, ButtonGroup, Button, Switch } fr
 import PageSelect from "./page/page-select";
 import { isTitleOrUidDailyPage } from "../services/graph-manip";
 import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
-import { initializeEmbeddingWorker } from "../services/embedding-worker-client";
+import { createEmbeddingSession } from "../services/embedding-worker-client";
 import useIdb from "../hooks/useIdb";
 import { EMBEDDING_STORE, SIMILARITY_STORE } from "../services/idb";
 
@@ -32,6 +32,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
   const [graph, initializeGraph, roamPages, attributeUids, getShortestPaths] = useGraphology();
   const [loadingIncrement, setLoadingIncrement] = React.useState<number>(0);
   const [pagesLeft, setPagesLeft] = React.useState<number>(0);
+  const [bulkIndexing, setBulkIndexing] = React.useState(false);
   const [disconnected, setDisconnected] = React.useState<boolean>(false);
   // Off by default: attribute pages and daily notes are hidden from the search
   // list until the user flips these toggles on the modal.
@@ -203,6 +204,7 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         if (idsToEmbed.length > 0) {
           // Order matters: set pagesLeft > 0 BEFORE status EMBEDDING so the completion
           // effect never observes (EMBEDDING && pagesLeft <= 0) and skips ahead. Do not reorder.
+          setBulkIndexing(idsToEmbed.length > CHUNK_SIZE);
           setPagesLeft(idsToEmbed.length);
           setStatus("EMBEDDING");
 
@@ -217,19 +219,27 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
             setStatus("EMBEDDING_ERROR");
           };
 
-          for (let i = 0; i < idsToEmbed.length; i += CHUNK_SIZE) {
-            if (selectionGeneration.current !== myGeneration) return;
-            const chunkedPageIds = idsToEmbed.slice(i, i + CHUNK_SIZE);
-            const ok = await initializeEmbeddingWorker(
-              chunkedPageIds,
-              guardedCheckIfDoneEmbedding,
-              guardedOnEmbeddingError
-            );
-            // Stop spawning workers once a chunk fails (the error handler already
-            // moved us to EMBEDDING_ERROR).
-            if (!ok) return;
+          // One worker for the whole run, reused across chunks (the model loads
+          // once). Terminated on every exit path via the finally.
+          const session = createEmbeddingSession();
+          try {
+            for (let i = 0; i < idsToEmbed.length; i += CHUNK_SIZE) {
+              if (selectionGeneration.current !== myGeneration) return;
+              const chunkedPageIds = idsToEmbed.slice(i, i + CHUNK_SIZE);
+              const ok = await session.embedChunk(
+                chunkedPageIds,
+                guardedCheckIfDoneEmbedding,
+                guardedOnEmbeddingError
+              );
+              // Stop embedding once a chunk fails (the error handler already
+              // moved us to EMBEDDING_ERROR).
+              if (!ok) return;
+            }
+          } finally {
+            session.terminate();
           }
         } else {
+          setBulkIndexing(false);
           setPagesLeft(0);
           setStatus("READY_TO_COMPUTE");
         }
@@ -357,7 +367,9 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
                     {status === "GETTING_GRAPH_STATS"
                       ? "Calculating graph distances..."
                       : (status === "EMBEDDING" || status === "READY_TO_EMBED") && pagesLeft > 0
-                      ? `Embedding pages... (${pagesLeft} remaining)`
+                      ? bulkIndexing
+                        ? `Building your graph's similarity index — this runs once and is cached, so future pages load instantly. ${pagesLeft} pages to go.`
+                        : `Embedding new pages… (${pagesLeft} remaining)`
                       : "Computing similarities..."}
                   </p>
                 </Card>

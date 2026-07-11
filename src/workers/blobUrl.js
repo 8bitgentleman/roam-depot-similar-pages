@@ -4,33 +4,52 @@ const STRING_STORE = "fullStrings";
 const EMBEDDING_STORE = "embeddings";
 const SIMILARITY_STORE = "similarities";
 
+// Load the embedding pipeline once and reuse it across every chunk. Rebuilding
+// the BGE model per chunk is what made cold, full-corpus runs take minutes.
+let extractorPromise;
+const getExtractor = () => {
+  if (!extractorPromise) {
+    extractorPromise = (async () => {
+      const { pipeline } = await import(
+        "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js"
+      );
+      return pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", {
+        dtype: "q8",
+      });
+    })();
+  }
+  return extractorPromise;
+};
+
+let dbPromise;
+const getDb = () => {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      const { openDB } = await import(
+        "https://cdn.jsdelivr.net/npm/idb@7.1.1/+esm"
+      );
+      return openDB(IDB_NAME, undefined, {
+        upgrade(db) {
+          [STRING_STORE, EMBEDDING_STORE, SIMILARITY_STORE].forEach((store) => {
+            if (!db.objectStoreNames.contains(store)) {
+              db.createObjectStore(store);
+            }
+          });
+        },
+      });
+    })();
+  }
+  return dbPromise;
+};
+
 self.onmessage = async function ({ data }) {
-  if (data.method !== "init") return;
+  if (data.method !== "embed") return;
 
   try {
     const pageIds = data.pageIds;
 
-    const { pipeline } = await import(
-      "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js"
-    );
-
-    const extractor = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", {
-      dtype: "q8",
-    });
-
-    const { openDB } = await import(
-      "https://cdn.jsdelivr.net/npm/idb@7.1.1/+esm"
-    );
-
-    const db = await openDB(IDB_NAME, undefined, {
-      upgrade(db) {
-        [STRING_STORE, EMBEDDING_STORE, SIMILARITY_STORE].forEach((store) => {
-          if (!db.objectStoreNames.contains(store)) {
-            db.createObjectStore(store);
-          }
-        });
-      },
-    });
+    const extractor = await getExtractor();
+    const db = await getDb();
 
     const pageStrings = await Promise.all(pageIds.map((id) => db.get(STRING_STORE, id)));
 

@@ -89,8 +89,6 @@ export type NODE_ATTRIBUTES = {
 
 // GP is Graphable Page
 
-export type EmbeddingWorker = { current: Worker | undefined; init: boolean };
-
 export type Point = {
   x: number;
   y: number;

@@ -1,43 +1,61 @@
-import { EmbeddingWorker } from "../types";
 import { initializeSelfHostedWorker } from "../workers/blobUrl";
 
-const embeddingWorker: EmbeddingWorker = { current: undefined, init: false };
+export type EmbeddingSession = {
+  embedChunk(
+    pageIds: string[],
+    onDone: (n: number) => void,
+    onError: (m: string) => void
+  ): Promise<boolean>;
+  terminate(): void;
+};
 
-// Resolves when the worker finishes a chunk (true) or fails (false), and always
-// terminates the worker. The caller awaits this per chunk, so chunks run one at
-// a time — a full-corpus first run must NOT spawn every chunk's worker at once
-// (each loads its own copy of the embedding model).
-export const initializeEmbeddingWorker = (
-  pageIds: string[],
-  onDone: (workersDone: number) => void,
-  onError: (message: string) => void
-): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const worker = initializeSelfHostedWorker();
-    embeddingWorker.current = worker;
+// One worker per run, reused across every chunk so the embedding model is loaded
+// once instead of rebuilt per 100-page chunk. Chunks are awaited serially, so at
+// most one chunk is in flight at a time (≤1 pending resolver).
+export const createEmbeddingSession = (): EmbeddingSession => {
+  const worker = initializeSelfHostedWorker();
 
-    const finish = (ok: boolean) => {
-      worker.terminate();
-      if (embeddingWorker.current === worker) embeddingWorker.current = undefined;
-      resolve(ok);
-    };
-
-    worker.onmessage = (e) => {
-      const { method, ...data } = e.data;
-
-      if (method === "complete" && data["workersDone"]) {
-        onDone(data["workersDone"]);
-        finish(true);
-      } else if (method === "error") {
-        onError(data["message"]);
-        finish(false);
+  let pending:
+    | {
+        resolve: (ok: boolean) => void;
+        onDone: (n: number) => void;
+        onError: (m: string) => void;
       }
-    };
-    worker.onerror = (e) => {
-      onError(e.message);
-      finish(false);
-    };
+    | undefined;
 
-    worker.postMessage({ method: "init", pageIds });
-  });
+  worker.onmessage = (e) => {
+    const { method, ...data } = e.data;
+    const current = pending;
+    if (!current) return;
+
+    if (method === "complete") {
+      pending = undefined;
+      current.onDone(data["workersDone"] ?? 0);
+      current.resolve(true);
+    } else if (method === "error") {
+      pending = undefined;
+      current.onError(data["message"]);
+      current.resolve(false);
+    }
+  };
+
+  worker.onerror = (e) => {
+    const current = pending;
+    if (!current) return;
+    pending = undefined;
+    current.onError(e.message);
+    current.resolve(false);
+  };
+
+  return {
+    embedChunk: (pageIds, onDone, onError) =>
+      new Promise<boolean>((resolve) => {
+        pending = { resolve, onDone, onError };
+        worker.postMessage({ method: "embed", pageIds });
+      }),
+    terminate: () => {
+      // Safe to call more than once — Worker.terminate() is idempotent.
+      worker.terminate();
+    },
+  };
 };
