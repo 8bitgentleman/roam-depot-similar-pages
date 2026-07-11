@@ -20,7 +20,7 @@ function PageSelectComponent(props: PageSelectProps) {
   return (
     <PageSelect
       className="page-select"
-      itemPredicate={filterPageList}
+      itemListPredicate={filterPageList}
       itemRenderer={renderPageList}
       items={selectablePages}
       filterable={selectablePages.length > 10}
