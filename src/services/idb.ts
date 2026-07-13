@@ -1,5 +1,12 @@
 export const IDB_NAME = "sp";
-export const IDB_VERSION = 3;
+export const IDB_VERSION = 4;
+
+// Output dimensionality of the embedding model the worker loads
+// (Xenova/bge-small-en-v1.5 in src/workers/blobUrl.js). Kept here so the main
+// thread can detect and discard dimension-mismatched vectors — e.g. leftover
+// 512-dim USE vectors from the original extension, which shares the "sp" DB.
+// If the worker's model changes, update this to match its output size.
+export const EMBEDDING_DIM = 384;
 export const DIJKSTRA_STORE = "dijkstraDiffs";
 export const STRING_STORE = "fullStrings";
 export const EMBEDDING_STORE = "embeddings";

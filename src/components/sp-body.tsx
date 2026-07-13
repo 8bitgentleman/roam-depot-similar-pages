@@ -8,7 +8,7 @@ import { isTitleOrUidDailyPage } from "../services/graph-manip";
 import { CHUNK_SIZE, INITIAL_LOADING_INCREMENT } from "../constants";
 import { createEmbeddingSession } from "../services/embedding-worker-client";
 import useIdb from "../hooks/useIdb";
-import { EMBEDDING_STORE, SIMILARITY_STORE } from "../services/idb";
+import { EMBEDDING_STORE, SIMILARITY_STORE, EMBEDDING_DIM } from "../services/idb";
 
 function dot(a: number[], b: number[]): number {
   let sum = 0;
@@ -162,22 +162,47 @@ export const SpBody = ({ extensionAPI, initialPageUid }: SpBodyProps) => {
         const similaritiesStore = tx.objectStore(SIMILARITY_STORE);
         const apexEmbedding = await embeddingsStore.get(apexPageId);
 
+        // Self-heal against dimension-mismatched vectors. The v4 upgrade wipes
+        // legacy 512-dim USE vectors, but the original extension shares the "sp"
+        // DB, so a concurrent install could still write one post-upgrade. A
+        // stale apex can't produce meaningful dot products against anything, so
+        // drop it and re-embed rather than compute garbage.
+        if (apexEmbedding && apexEmbedding.length !== EMBEDDING_DIM) {
+          await embeddingsStore.delete(apexPageId);
+          await tx.done;
+          if (selectionGeneration.current !== myGeneration) return;
+          setStatus("READY_TO_EMBED");
+          return;
+        }
+
         if (apexEmbedding) {
           const operations: Promise<string | void>[] = [similaritiesStore.clear()];
           // O(1) membership test — the candidate pool is now the whole corpus.
           const activeIdSet = new Set(activePageIds);
+          // Candidates whose stored vector doesn't match the model dimension are
+          // dropped (not scored) and re-embedded on the next pass, so no stale
+          // vector corrupts a score. Deletes are queued and applied after the
+          // cursor finishes, not mid-iteration.
+          const staleKeys: IDBValidKey[] = [];
 
           for await (const { value: embedding, key } of embeddingsStore) {
-            if (activeIdSet.has(key as string)) {
-              operations.push(similaritiesStore.put(dot(apexEmbedding, embedding), key));
+            if (!activeIdSet.has(key as string)) continue;
+            if (embedding.length !== EMBEDDING_DIM) {
+              staleKeys.push(key);
+              continue;
             }
+            operations.push(similaritiesStore.put(dot(apexEmbedding, embedding), key));
           }
+
+          operations.push(...staleKeys.map((key) => embeddingsStore.delete(key)));
 
           await Promise.all(operations);
           await tx.done;
 
           if (selectionGeneration.current !== myGeneration) return;
-          setStatus("READY_TO_DISPLAY");
+          // If any stale candidate was dropped, re-embed before displaying so no
+          // active page is silently missing from this run; otherwise show now.
+          setStatus(staleKeys.length > 0 ? "READY_TO_EMBED" : "READY_TO_DISPLAY");
         } else {
           console.error(
             `sp-body: apex embedding for page ${apexPageId} was not found; cannot compute similarities.`

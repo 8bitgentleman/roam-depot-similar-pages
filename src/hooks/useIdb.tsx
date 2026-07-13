@@ -5,6 +5,7 @@ import {
   EMBEDDING_STORE,
   HASH_STORE,
   STRING_STORE,
+  SIMILARITY_STORE,
   IDB_NAME,
   IDB_VERSION,
   TITLE_STORE,
@@ -27,12 +28,31 @@ function useIdb() {
   React.useEffect(() => {
     const initializeIdb = async () => {
       const freshDb = await openDB(IDB_NAME, IDB_VERSION, {
-        upgrade(db: IDBPDatabase) {
+        upgrade(db: IDBPDatabase, oldVersion: number, _newVersion, tx) {
           STORES.forEach((store: STORES_TYPE) => {
             if (!db.objectStoreNames.contains(store)) {
               db.createObjectStore(store);
             }
           });
+
+          // Users upgrading from the original USE-based extension carry over
+          // 512-dim vectors in EMBEDDING_STORE (the "sp" DB name is unchanged).
+          // Older builds cleared every store on each open, so nothing wiped
+          // them once that clear was removed. Those vectors are dimensionally
+          // incompatible with the 384-dim BGE model this fork uses, and both
+          // addActivePages and addApexPage skip re-embedding a page that
+          // already has a vector — so a stale USE vector silently produces a
+          // meaningless dot(384-dim apex, 512-dim candidate) similarity until
+          // that page happens to be selected as apex. Wipe the content-derived
+          // stores on upgrade so the corpus re-embeds cleanly. Guard is < 4
+          // (not < 3): IDB_VERSION was bumped to 3 in the same build that
+          // removed the clear-on-open, so a DB already at v3 could still hold
+          // stale vectors that a `< 3` guard would never reach.
+          if (oldVersion < 4) {
+            [EMBEDDING_STORE, STRING_STORE, SIMILARITY_STORE, HASH_STORE].forEach((store) => {
+              tx.objectStore(store).clear();
+            });
+          }
         },
         blocking() {
           // Close this connection if a newer version wants to upgrade

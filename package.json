@@ -4,7 +4,7 @@
     "name": "scott from ptn",
     "email": "support@phonetonote.com"
   },
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "find connections between ideas",
   "main": "extension.js",
   "scripts": {
